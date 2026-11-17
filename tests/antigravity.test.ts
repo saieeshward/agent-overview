@@ -1,5 +1,6 @@
 import type { EngineInterface, On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
+import { defaultPolicy } from '../hooks/policy'
 import type { Providers, Routing } from '../types'
 import { agyJobOn, agyModelNotice, agyQuotaLine, blank, defaultRouting, handoffText, normalGuard, normalRouting, presetKey, routingText, withPicks } from '../hooks/state'
 import { antigravityUsage, parseAgyModels, parseAgyQuota, watchQuota } from '../hooks/providers'
@@ -136,7 +137,8 @@ function held(on: On, state: Record<string, any>) {
 
 test('guard injects each job model; mismatches warn in Warn and Enforce and never block the permitted job', { timeoutMs: 20000 }, async ($, on) => {
   mock.clock(on, { now: NOW }); mock.store(on)
-  const state = { ...fixture({ area: 'overview', tab: 'models', scenario: 'agy-guard' }), routing: route(), guard: normalGuard(undefined) }
+  // Antigravity runs only from an allowlisted project: allow every project here.
+  const state = { ...fixture({ area: 'overview', tab: 'models', scenario: 'agy-guard' }), routing: route(), guard: normalGuard(undefined), policy: { ...defaultPolicy(), allow: ['/'] } }
   held(on, state)
   const sent: any[] = []
   on('tool.call', (_$, e) => { sent.push(e); return { result: 'kept', text: 'kept', isError: true, context: ['existing'] } })

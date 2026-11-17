@@ -1,6 +1,6 @@
 import { atom, read, update } from 'claude-code'
-import type { Lane, Policy, Providers, RouteLogItem, TaskType, Ui } from '../types'
-import { CLAUDE_MODELS, EFFORTS, GEMINI_MODELS, LANES, OLLAMA_DEFAULT, TASK_TYPES, defaultPolicy, laneName, savePolicy } from './policy'
+import type { Confidential, Lane, Policy, Providers, RouteLogItem, TaskType, Ui } from '../types'
+import { CLAUDE_MODELS, CLIENT_PATTERNS, EFFORTS, onAllowlist, GEMINI_MODELS, LANES, OLLAMA_DEFAULT, TASK_TYPES, defaultPolicy, laneName, savePolicy } from './policy'
 import { allOf, blank, isEmbedder } from './state'
 import { Card, Chip, Fold, SettingsRow, ago, fit, padR, shortModel, tok } from './ui'
 import type { $, E } from './ui'
@@ -10,6 +10,7 @@ const routeLog = atom({ plugin: 'agent-overview', key: 'routeLog' } as const, []
 const providers = atom({ plugin: 'agent-overview', key: 'providers' } as const, {
   claude: blank(), codex: blank(), commandcode: blank(), opencode: blank(), antigravity: blank(), ollama: blank(),
 } as Providers)
+const confidential = atom({ plugin: 'agent-overview', key: 'confidential' } as const, { cwd: '', found: [], sources: [] } as Confidential)
 const ui = atom({ plugin: 'agent-overview', key: 'ui' } as const, { tab: 'dashboard', pick: 'claude' } as Ui)
 
 const LANE_COLOR: Record<Lane, string> = { claude: 'claude', ollama: '#C026D3', gemini: '#4285F4' }
@@ -66,4 +67,39 @@ export async function routeLogCard($: $, E: E, w: number, now: number) {
       {x.note && x.outcome !== 'done' ? <E.Text dimColor wrap="truncate-end">{'   ↳ '}{x.note}</E.Text> : null}
     </E.Box>) : <E.Text dimColor>no routed tasks yet</E.Text>}
   </E.Box>, { aside: <E.Text dimColor>last {list.length} of 50</E.Text> })
+}
+
+// What may go to Antigravity: projects on the allowlist, never client work or confidential paths.
+export async function confidentialCard($: $, E: E, w: number) {
+  const p = await read($, policy)
+  const c = await read($, confidential)
+  const u = await read($, ui)
+  const cwd = c.cwd || await $.session.cwd().catch(() => '')
+  const here = onAllowlist(p.allow, cwd)
+  const pathW = Math.max(20, w - 12)
+  return Card(E, 'card:confidential', 'CONFIDENTIAL', here ? 'subtle' : 'warning', <E.Box flexDirection="column" gap={E.desk ? 1 : 0}>
+    {SettingsRow(E, 'conf:here', 'Antigravity in this project', [
+      <E.Button key="conf:here:off" plain onPress={() => savePolicy($, x => ({ ...x, allow: x.allow.filter(a => a !== cwd) }))}>{Chip(E, 'Off', !here, 'warning')}</E.Button>,
+      <E.Button key="conf:here:on" plain onPress={() => cwd && savePolicy($, x => ({ ...x, allow: [...x.allow, cwd] }))}>{Chip(E, 'Allowed', here, 'success')}</E.Button>,
+    ])}
+    <E.Text dimColor wrap="truncate-start">{fit(cwd || 'project unknown', pathW)}</E.Text>
+    {p.allow.length ? <E.Text weight="bold">Allowlist</E.Text> : <E.Text dimColor>No project is allowed: Antigravity (gemini_run, its tools, agy -p) is refused everywhere.</E.Text>}
+    {p.allow.map(a => <E.Box key={`conf:allow:${a}`} flexDirection="row" gap={1}>
+      <E.Button key={`conf:allow:del:${a}`} plain onPress={() => savePolicy($, x => ({ ...x, allow: x.allow.filter(y => y !== a) }))}><E.Text color="error">✕</E.Text></E.Button>
+      <E.Text wrap="truncate-start">{fit(a, pathW)}</E.Text>
+    </E.Box>)}
+    <E.Text weight="bold">Never sent to a cloud lane</E.Text>
+    <E.Text dimColor wrap="wrap">sensitivity:client · {CLIENT_PATTERNS.join(' · ')}</E.Text>
+    {c.found.length ? <E.Text dimColor wrap="wrap">from {c.sources.map(x => x.split('/').pop()).join(', ')}: {c.found.join(' · ')}</E.Text> : null}
+    {p.patterns.map(x => <E.Box key={`conf:pat:${x}`} flexDirection="row" gap={1}>
+      <E.Button key={`conf:pat:del:${x}`} plain onPress={() => savePolicy($, y => ({ ...y, patterns: y.patterns.filter(z => z !== x) }))}><E.Text color="error">✕</E.Text></E.Button>
+      <E.Text>{x}</E.Text>
+    </E.Box>)}
+    {u.confirm === 'conf:pattern'
+      ? <E.Input key="conf:pattern:input" placeholder="a path or glob, e.g. clients/ or *.key" submitLabel="add" onSubmit={async (v: string) => {
+        if (v.trim()) await savePolicy($, y => ({ ...y, patterns: [...y.patterns, v.trim()] }))
+        await update($, ui, x => ({ ...x, confirm: undefined }))
+      }} />
+      : <E.Button key="conf:pattern:add" plain onPress={() => update($, ui, x => ({ ...x, confirm: 'conf:pattern' }))}><E.Text color="suggestion">+ confidential pattern</E.Text></E.Button>}
+  </E.Box>, { aside: <E.Text dimColor>Antigravity only</E.Text> })
 }

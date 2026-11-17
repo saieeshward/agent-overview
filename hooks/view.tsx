@@ -16,7 +16,7 @@ import { modeBusy } from './modes'
 import { chatSettings } from './chat-settings'
 import { chatBandExtras } from './chat-surfaces'
 import { hooksCard, switchNote } from './hookcheck'
-import { routeLogCard, taskRoutingCard } from './policy-view'
+import { confidentialCard, routeLogCard, taskRoutingCard } from './policy-view'
 import type { Stage, TreeRow } from './graph'
 import { allOf, agyQuotaLine, OTHERS, PROVIDERS, blank, colorOf, defaultRouting, livePicks, move, nameOf, normalGuard, providerOf, usageAge, tagOf, withPicks, withTag } from './state'
 
@@ -1958,6 +1958,7 @@ async function modelsTab($: $, E: E, w: number, rows: number) {
       ))}
       {await presetsCard($, E)}
       {await taskRoutingCard($, E, w)}
+      {await confidentialCard($, E, w)}
       {optimizeControls($, E, r)}
       {adversaryControls($, E, r)}
       {Card(E, 'card:models', 'MODELS', paused ? 'inactive' : 'claude', (

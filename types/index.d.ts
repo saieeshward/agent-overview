@@ -221,6 +221,8 @@ export type RouteLogItem = {
   lane: Lane; model: string; effort?: string; tokens?: number; ms?: number
   outcome: 'running' | 'done' | 'failed' | 'denied' | 'warned' | 'escalated'; note?: string
 }
+// This session's project and the confidential paths its own rules name (CLAUDE.md, a .clan file).
+export type Confidential = { cwd: string; found: string[]; sources: string[] }
 export type HookCheck = { session: string; ran: Record<string, number>; bypassed: Record<string, string> }
 
 // What the owner set for delegated work; saved across sessions in $.store.
@@ -290,6 +292,7 @@ declare module 'claude-code' {
       hookcheck: HookCheck
       policy: Policy
       routeLog: RouteLogItem[]
+      confidential: Confidential
     }
   }
 }

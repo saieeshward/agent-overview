@@ -5,6 +5,7 @@ import { outputTokens } from '../hooks/cost'
 import { codexOutput, loadSpeeds, normalSpeeds, parseCodexOutput, recordSpeed, speedKey, speedOf, withSpeedSample } from '../hooks/speed'
 import { defaultRouting, handoffText, normalRouting, presetKey, routingText, withPicks } from '../hooks/state'
 import { fixture, NOW } from '../tools/pane-fixtures'
+import { defaultPolicy } from '../hooks/policy'
 import { CLAUDE_USAGE, CODEX_FILE, CODEX_OUTPUT, CODEX_ROLLOUT, SIDE_SPEEDS } from './speed-fixtures'
 
 const sample = (outputTokens = 700, milliseconds = 10000) => ({ outputTokens, milliseconds })
@@ -136,6 +137,7 @@ test('Agent result usage records once even when turn.complete supplied it', asyn
 for (const f of SIDE_SPEEDS) test(`${f.provider} run records output tokens against its node duration`, async ($, on) => {
   const { state, store, clock, files } = setup(on)
   state.routing.agyCoding = true
+  state.policy = { ...defaultPolicy(), allow: ['/'] }
   if (f.provider === 'codex') files[`/speed-test/.codex/sessions/${new Date(NOW).toISOString().slice(0, 10).replace(/-/g, '/')}/${CODEX_FILE}`] = CODEX_ROLLOUT
   on('tool.call', async () => { await clock.advance(10000); return { result: f.result } as any })
   const call = f.provider === 'antigravity'

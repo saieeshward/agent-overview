@@ -44,12 +44,13 @@ export function normalPolicy(saved: unknown): Policy {
     if (!x || !LANES.includes(x.lane) || !isModel(x.lane, x.model)) continue
     table[t] = { lane: x.lane, model: x.model, ...(x.lane === 'claude' && EFFORTS.includes(x.effort ?? '') ? { effort: x.effort } : {}) }
   }
-  const paths = (v: unknown) => Array.isArray(v) ? [...new Set(v.filter((p): p is string => typeof p === 'string' && !!p.trim()).map(p => p.trim().replace(/\/+$/, '')))].slice(0, 50) : []
+  const paths = (v: unknown) => Array.isArray(v) ? [...new Set(v.filter((p): p is string => typeof p === 'string' && !!p.trim()).map(p => p.trim().replace(/(.)\/+$/, '$1')))].slice(0, 50) : []
   return {
     table,
     declare: s.declare === 'block' || s.declare === 'off' ? s.declare : 'warn',
     allow: paths(s.allow),
-    patterns: paths(s.patterns),
+    // Patterns keep a trailing slash: it marks a folder.
+    patterns: Array.isArray(s.patterns) ? [...new Set(s.patterns.filter((p): p is string => typeof p === 'string' && !!p.trim() && p.length < 200).map(p => p.trim()))].slice(0, 50) : [],
   }
 }
 
@@ -148,4 +149,53 @@ export async function settleRoute($: $, match: (x: RouteLogItem) => boolean, cha
   if (!list.some(x => match(x) && x.outcome === 'running')) return
   const next = await update($, routeLog, l => l.map(x => match(x) && x.outcome === 'running' ? { ...x, ...change } : x))
   await $.store.set('routeLog', next).catch(() => {})
+}
+
+// ---------- confidentiality: what never goes to a cloud side lane ----------
+
+// Client material, always: briefs, metrics, the client labels of the golden set, and env files.
+export const CLIENT_PATTERNS = ['client_briefs/', 'runs/metrics/', 'engine/rag/golden/labels/client/', '*.env', '.env']
+
+// Paths a project's own rules call "Never commit" or confidential (CLAUDE.md, a .clan file's text):
+// the backticked paths of that section, and of any line that says so.
+export function neverCommitPatterns(text: string): string[] {
+  const out = new Set<string>()
+  const take = (chunk: string) => {
+    for (const m of chunk.matchAll(/`([^`\n]{1,120})`/g)) {
+      const p = m[1]!.trim()
+      if (/^[\w.*\/-]+$/.test(p) && /[./*]/.test(p) && !/^\d/.test(p)) out.add(p)
+    }
+  }
+  const lines = text.split('\n')
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!
+    if (/^\s*#{1,6}\s.*(never commit|confidential)/i.test(line)) {
+      let j = i + 1
+      const chunk: string[] = []
+      while (j < lines.length && !/^\s*#{1,6}\s/.test(lines[j]!)) chunk.push(lines[j++]!)
+      take(chunk.join('\n'))
+    } else if (/never commit|confidential/i.test(line)) take(line)
+  }
+  return [...out]
+}
+
+const esc = (s: string) => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+// A pattern as a match on path boundaries: "dir/" anywhere a path segment starts, "*.env" any file of that kind.
+export function patternRegex(p: string): RegExp {
+  const body = esc(p.replace(/^\.?\//, '')).replace(/\*/g, '[^\\s/"\'`]*')
+  return new RegExp(`(?:^|[\\s"'\`(=:/@])${body}${p.endsWith('/') ? '' : '(?![\\w-])'}`, 'i')
+}
+export function clientHit(text: string, patterns: string[]): string | undefined {
+  return patterns.find(p => patternRegex(p).test(text))
+}
+
+export const onAllowlist = (allow: string[], cwd: string) => allow.some(a => a === '/' || cwd === a || cwd.startsWith(`${a}/`))
+
+// May this go to Antigravity? Not client work, not text naming client paths, and only from an allowlisted project.
+export function cloudCheck(p: Policy, cwd: string, opts: { sensitivity?: string; text?: string; found?: string[] } = {}): { allowed: boolean; why?: string } {
+  if (opts.sensitivity === 'client') return { allowed: false, why: 'client material never goes to a cloud lane' }
+  const hit = opts.text ? clientHit(opts.text, [...CLIENT_PATTERNS, ...(opts.found ?? []), ...p.patterns]) : undefined
+  if (hit) return { allowed: false, why: `it names a confidential path (${hit})` }
+  if (!onAllowlist(p.allow, cwd)) return { allowed: false, why: `this project (${cwd || 'unknown'}) is not on the Antigravity allowlist` }
+  return { allowed: true }
 }

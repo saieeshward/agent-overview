@@ -11,7 +11,7 @@ import { registerChatLook } from './chat-look'
 import { officeRail } from './office-rail'
 import type { EngineInterface, Register, ToolCallResult } from 'claude-code'
 
-import type { Act, AgentNode, Lane, RouteLogItem, Sensitivity, Costs, DecisionItem, Finding, Stage, Installed, Media, Mode, EditItem, GitInfo, GrillItem, History, HistoryItem, Impl, LiveEdit, MainInfo, ModelSpeeds, Prices, Provider, Providers, Routing, SideLive, TurnCost, Ui, Used, Written } from '../types'
+import type { Act, AgentNode, Confidential, Lane, RouteLogItem, Sensitivity, Costs, DecisionItem, Finding, Stage, Installed, Media, Mode, EditItem, GitInfo, GrillItem, History, HistoryItem, Impl, LiveEdit, MainInfo, ModelSpeeds, Prices, Provider, Providers, Routing, SideLive, TurnCost, Ui, Used, Written } from '../types'
 import { antigravityUsage, claudeUsage, ensurePrices, loadPrices, ollamaGenerate, OLLAMA_DOWN, OLLAMA_LONG, plugins, refreshModels, refreshUsage, tokens, watchQuota } from './providers'
 import { addTokens, claudeTotal, elevenCredits, matchTurnCost, mediaReadOnly, mediaService, mediaShort, mediaText, money, outputTokens, parseAgyUsage, refreshMedia, rowCost, spendBy, zero } from './cost'
 import { allOf, agyJobModel, agyJobOn, agyModelNotice, OTHERS, PROVIDERS, blank, isEmbedder, offlineOf, loadRouting, pruneStore, defaultRouting, handoffText, livePicks, nameOf, normalGuard, normalRouting, planDeny, routingText, subagentRoute, withFlags, missingOf, without } from './state'
@@ -24,7 +24,7 @@ import { PANE, drawBand, drawPane, fit, tok } from './view'
 import { IMPACT, shortModel, tableOf } from './ui'
 import { mergeFinding, stageDeny, workText } from './work/stage'
 import { flushCheck, mark, markCount, readDebugLog, startCheck } from './hookcheck'
-import { FALLBACK, declarationText, defaultPolicy, isProblem, laneName, laneTool, lanesOpen, loadPolicy, logRoute, parseDeclaration, resolveRoute, settleRoute } from './policy'
+import { FALLBACK, cloudCheck, declarationText, defaultPolicy, isProblem, neverCommitPatterns, laneName, laneTool, lanesOpen, loadPolicy, logRoute, parseDeclaration, resolveRoute, settleRoute } from './policy'
 import type { Resolved } from './policy'
 
 // State lives here as well as beside the other hooks: the engine lists each file's reads and writes from its own consts.
@@ -64,6 +64,7 @@ const stage = atom({ plugin: 'agent-overview', key: 'stage' } as const, null as 
 const impl = atom({ plugin: 'agent-overview', key: 'impl' } as const, { agents: [] } as Impl)
 const findings = atom({ plugin: 'agent-overview', key: 'findings' } as const, [] as Finding[])
 const policy = atom({ plugin: 'agent-overview', key: 'policy' } as const, defaultPolicy())
+const confidential = atom({ plugin: 'agent-overview', key: 'confidential' } as const, { cwd: '', found: [], sources: [] } as Confidential)
 
 const GRILL_TOOL = 'mcp__agent-overview__grill_log'
 const QA_TOOL = 'mcp__agent-overview__qa_log'
@@ -389,10 +390,38 @@ async function rememberPrompt($: EngineInterface, value: DeliveredPrompt) {
   if (value.sessionId) await $.store.set(`deliveredPrompt:${value.sessionId}`, value).catch(() => {})
 }
 
-// Which side lanes can take a task now (Claude only, off, not running, client material).
+// Which side lanes can take a task now (Claude only, off, not running, client material, the allowlist).
 async function openLanes($: EngineInterface, sensitivity?: Sensitivity) {
   const ps = await read($, providers).then(allOf)
-  return lanesOpen(await read($, routing), { installed: ps.ollama.status !== 'missing', up: !ps.ollama.offline }, sensitivity)
+  return lanesOpen(await read($, routing), { installed: ps.ollama.status !== 'missing', up: !ps.ollama.offline }, sensitivity, await cloudOk($, { sensitivity }))
+}
+
+// Whether this project and this text may go to Antigravity (Phase 3's allowlist and client patterns).
+async function cloudOk($: EngineInterface, opts: { sensitivity?: string; text?: string }) {
+  const c = await read($, confidential)
+  const cwd = c.cwd || await $.session.cwd().catch(() => '')
+  const sensitivity = opts.sensitivity ?? (/\bsensitivity:\s*client\b/i.test(opts.text ?? '') ? 'client' : undefined)
+  return cloudCheck(await read($, policy), cwd, { ...opts, sensitivity, found: c.found })
+}
+
+// The project's own "Never commit" and confidential paths, read once per session from CLAUDE.md and its .clan files.
+async function loadConfidential($: EngineInterface) {
+  const cwd = await $.session.cwd().catch(() => '')
+  if (!cwd) return
+  const found = new Set<string>(), sources: string[] = []
+  const root = (await gitRun($, ['rev-parse', '--show-toplevel'], cwd))?.stdout.trim()
+  for (const dir of [...new Set([cwd, root].filter((d): d is string => !!d))]) {
+    const md = await $.fs.read(`${dir}/CLAUDE.md`).catch(() => '')
+    const fromMd = md ? neverCommitPatterns(md) : []
+    if (fromMd.length) { fromMd.forEach(p => found.add(p)); sources.push(`${dir}/CLAUDE.md`) }
+    const entries = await $.fs.list(dir).catch(() => [])
+    for (const f of entries.filter(x => x.kind === 'file' && x.name.endsWith('.clan')).slice(0, 3)) {
+      const r = await $.process.run(['/usr/bin/unzip', '-p', `${dir}/${f.name}`], { timeoutMs: 4000 }).catch(() => undefined)
+      const fromClan = r?.exitCode === 0 ? neverCommitPatterns(r.stdout) : []
+      if (fromClan.length) { fromClan.forEach(p => found.add(p)); sources.push(`${dir}/${f.name}`) }
+    }
+  }
+  await update($, confidential, () => ({ cwd, found: [...found].slice(0, 40), sources }))
 }
 
 // An Agent spawn's declared task, checked against the owner's table: where it runs, or why it may not.
@@ -667,6 +696,7 @@ async function ollamaRun($: EngineInterface, e: Loose): Promise<ToolCallResult> 
   })
 }
 
+const AGY_RUN = /(?:^|[;&|(]\s*|\s)(?:\S*\/)?agy\s+(?:[^;&|]*\s)?(?:-p|--print|--prompt|-i|--prompt-interactive)(?:[\s=]|$)/
 type Loose = { tool: string; tool_use_id: string; agentId?: string; [arg: string]: unknown }
 
 let seq = 0
@@ -920,6 +950,7 @@ export const register: Register = on => {
     // A reload may bring new routing words: the cached routing section is composed again.
     $.ui.invalidate('prompt.section')
     await loadPolicy($)
+    void loadConfidential($)
     const savedGuard = await $.store.get('guard').catch(() => undefined)
     await update($, guard, () => normalGuard(savedGuard))
     await restoreDecisions($)
@@ -1390,6 +1421,8 @@ export const register: Register = on => {
       const isCoding = e.tool === 'mcp__antigravity__gemini_bounded_task'
       const job = isCoding ? 'coding' : 'visual'
       if (!agyJobOn(r, job)) return refuse('antigravity', `has ${isCoding ? 'coding or text work' : 'visual checks'} disabled or out of quota`)
+      const cloud = await cloudOk($, { text: JSON.stringify(call) })
+      if (!cloud.allowed) return { deny: `Antigravity refused: ${cloud.why}. Keep this in Claude or on Ollama (set by the owner in the agent panel's Models tab, CONFIDENTIAL card).` }
       const preferred = agyJobModel(r, job)
       const model = typeof e.model === 'string' && e.model ? e.model : preferred
       const notice = agyModelNotice(r, await read($, guard), job, model)
@@ -1410,6 +1443,13 @@ export const register: Register = on => {
         if (u) void update($, costs, c => ({ ...c, agy: { ...c.agy, [model]: addTokens(c.agy[model] ?? zero(), u) } }))
       }
     } else {
+      // A direct `agy -p` run is Antigravity too: the same switches and the same confidentiality rules.
+      if (e.tool === 'Bash' && AGY_RUN.test(String(e.command ?? ''))) {
+        if (r.role === 'claude') return refuse('antigravity', 'is paused: Claude only')
+        if (!r.on.antigravity) return refuse('antigravity', 'is turned off')
+        const cloud = await cloudOk($, { text: String(e.command ?? '') })
+        if (!cloud.allowed) return { deny: `Antigravity refused: ${cloud.why}. Keep this in Claude or on Ollama (set by the owner in the agent panel's Models tab, CONFIDENTIAL card).` }
+      }
       const ext = e.tool === 'Bash' ? externalOf(String(e.command ?? '')) : undefined
       if (ext && r.role === 'claude') return refuse(ext.provider, 'is paused: Claude only')
       if (ext && !r.on[ext.provider]) return refuse(ext.provider, 'is turned off')
