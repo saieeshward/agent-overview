@@ -237,6 +237,8 @@ export type AdversarialRun = {
 // /clean-worktrees: the numbered list the owner picks from (numbers hold while the list is fresh).
 export type WorktreeRow = { n: number; path: string; branch?: string; head: string; verdict: 'SAFE' | 'PUSH-FIRST' | 'WIP' | 'OPEN-PR'; why: string; dirty: number; ignored?: number; unpushed: number; last: number }
 export type WorktreeList = { repo: string; at: number; rows: WorktreeRow[] }
+// What an agent declared at spawn, kept apart from the capped node list (see hooks/register.tsx).
+export type KeptSens = { agentId: string; sensitivity?: string; parent?: string; escalated?: boolean }
 export type HookCheck = { session: string; ran: Record<string, number>; bypassed: Record<string, string> }
 
 // What the owner set for delegated work; saved across sessions in $.store.
@@ -309,6 +311,7 @@ declare module 'claude-code' {
       confidential: Confidential
       adversarial: AdversarialRun
       worktrees: WorktreeList
+      agentSens: KeptSens[]
     }
   }
 }
