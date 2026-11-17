@@ -18,6 +18,7 @@ const unfence = (s: string) => /^\s*```(?:json)?\s*\n([\s\S]*?)\n?```\s*$/.exec(
 export function failure(text: string, opts: { doneReason?: string; format?: Format } = {}): string | undefined {
   const t = text.trim()
   if (!t) return 'it returned an empty answer'
+  if (opts.doneReason === 'input-cut') return 'its input did not fit the context window and was cut off'
   if (opts.doneReason === 'length') return 'its answer was cut off at the length limit'
   // Antigravity's plan mode sometimes writes a plan file and links it instead of answering.
   if (/file:\/\/\S*\/brain\/\S+\.md/.test(t) && /\bplan\b/i.test(t)) return 'it wrote a plan file instead of answering'

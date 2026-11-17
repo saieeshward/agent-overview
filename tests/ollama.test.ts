@@ -173,7 +173,7 @@ test('a run picks an allowed, installed chat model and refuses embedders', () =>
 })
 
 test('the request asks for one non-streamed answer, keeps the model loaded and sizes its context', () => {
-  expect(ollamaBody('qwen2.5:7b', 'hi', { think: false })).toEqual({ model: 'qwen2.5:7b', prompt: 'hi', stream: false, keep_alive: '10m', options: { num_ctx: 8192 }, think: false })
+  expect(ollamaBody('qwen2.5:7b', 'hi', { think: false })).toEqual({ model: 'qwen2.5:7b', prompt: 'hi', stream: false, keep_alive: '10m', options: { num_ctx: 8192, num_predict: 3000 }, think: false })
   expect(ollamaBody('qwen2.5:7b', 'hi', { long: true }).options.num_ctx).toBe(16384)
   expect(ollamaBody('qwen2.5:7b', 'x'.repeat(30000)).options.num_ctx).toBe(16384)
   expect(ollamaBody('qwen2.5:7b', 'hi', { system: 'JSON only' })).toMatchObject({ system: 'JSON only' })
@@ -186,7 +186,7 @@ test('a generation returns the text and records tokens per second from eval_coun
   expect(out).toMatchObject({ text: 'A short summary.', outputTokens: 300, ms: 15000 })
   expect(f.requests[0]!.url).toBe(`${OLLAMA_URL}/api/generate`)
   expect(f.requests[0]!.init?.method).toBe('POST')
-  expect(JSON.parse(String(f.requests[0]!.init?.body))).toMatchObject({ model: 'qwen2.5:7b', stream: false, keep_alive: '10m', think: false, options: { num_ctx: 8192 } })
+  expect(JSON.parse(String(f.requests[0]!.init?.body))).toMatchObject({ model: 'qwen2.5:7b', stream: false, keep_alive: '10m', think: false, options: { num_ctx: 8192, num_predict: 3000 } })
   expect((f.saved.modelSpeeds2 as Record<string, unknown[]>)['qwen2.5:7b']).toEqual([{ outputTokens: 300, milliseconds: 15000 }])
 
   // Short answers add up until they make one sample the speed store keeps.

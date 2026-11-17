@@ -884,12 +884,14 @@ export async function ollamaCheck($: $) {
 
 export type OllamaRun = { text: string; model: string; outputTokens?: number; inputTokens?: number; ms?: number; doneReason?: string }
 export type OllamaOpts = { system?: string; long?: boolean; think?: boolean; format?: 'json' | Record<string, unknown>; images?: string[] }
+export const ollamaCtx = (prompt: string, opts: OllamaOpts = {}) => opts.long || prompt.length + (opts.system?.length ?? 0) > OLLAMA_LONG ? 16384 : 8192
 export const ollamaBody = (model: string, prompt: string, opts: OllamaOpts = {}) => ({
   model, prompt, stream: false, keep_alive: '10m',
   ...(opts.system ? { system: opts.system } : {}),
   ...(opts.format ? { format: opts.format } : {}),
   ...(opts.images?.length ? { images: opts.images } : {}),
-  options: { num_ctx: opts.long || prompt.length + (opts.system?.length ?? 0) > OLLAMA_LONG ? 16384 : 8192 },
+  // The answer is capped so a runaway generation ends well inside the timeout (a late reply cannot be cancelled).
+  options: { num_ctx: ollamaCtx(prompt, opts), num_predict: opts.long ? 6000 : 3000 },
   // Thinking models answer straight away: reasoning would only slow a small local job. Others ignore it.
   ...(opts.think === false ? { think: false } : {}),
 })
@@ -908,7 +910,11 @@ export async function ollamaSpeed($: $, model: string, outputTokens: number, ms:
 // One generation, not streamed. Speed comes from Ollama's own counts: eval_count over eval_duration (ns).
 export async function ollamaGenerate($: $, model: string, prompt: string, opts: Omit<OllamaOpts, 'think'> = {}): Promise<OllamaRun> {
   const send = async (body: object) => {
-    const response = await ollamaFetch($, '/api/generate', { method: 'POST', body: JSON.stringify(body) }, OLLAMA_TIMEOUT)
+    const response = await ollamaFetch($, '/api/generate', { method: 'POST', body: JSON.stringify(body) }, OLLAMA_TIMEOUT).catch(err => {
+      // A reply that never came leaves the model loaded and busy: ask the server to unload it (best effort, not waited for).
+      if (/no answer from Ollama/.test(String((err as Error)?.message))) void Promise.resolve($.http.fetch(`${OLLAMA_URL}/api/generate`, { method: 'POST', body: JSON.stringify({ model, keep_alive: 0 }), headers: { 'Content-Type': 'application/json' } })).catch(() => undefined)
+      throw err
+    })
     let json: any = {}
     try { json = JSON.parse(response.text) } catch {}
     return { response, json }
@@ -922,5 +928,8 @@ export async function ollamaGenerate($: $, model: string, prompt: string, opts: 
   const ms = typeof json?.eval_duration === 'number' ? json.eval_duration / 1e6 : undefined
   if (outputTokens !== undefined && ms !== undefined) await ollamaSpeed($, model, outputTokens, ms)
   const inputTokens = typeof json?.prompt_eval_count === 'number' ? json.prompt_eval_count : undefined
-  return { text, model, outputTokens, inputTokens, ms, doneReason: typeof json?.done_reason === 'string' ? json.done_reason : undefined }
+  // Ollama silently drops the start of a prompt that does not fit num_ctx and still says "stop": an input as long as the
+  // window means it was cut, so the answer cannot be trusted.
+  const cut = inputTokens !== undefined && inputTokens >= ollamaCtx(prompt, opts) - 8
+  return { text, model, outputTokens, inputTokens, ms, doneReason: cut ? 'input-cut' : typeof json?.done_reason === 'string' ? json.done_reason : undefined }
 }
