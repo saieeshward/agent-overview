@@ -49,8 +49,7 @@ function setup($: any, on: any, session = R) {
     const a = argv.join(' ')
     let out = '', code = 0
     if (argv[0] === '/bin/sh') {
-      const name = env?.NAME
-      if (a.includes('-ignored.tgz') && !flags.noTar) files.add(`${env.OUT}/${name}-ignored.tgz`)
+      if (env?.IGN && !flags.noTar) files.add(`${env.OUT}/${env.IGN}`)
     } else if (a.includes('--git-common-dir')) out = `${R}/.git`
     else if (a.includes('--show-toplevel')) out = session
     else if (a.includes('worktree list --porcelain')) out = PORCELAIN()
@@ -83,7 +82,7 @@ test('5 and 11: ignored files are listed, tarred before removal; the session wor
   const shells = ran.filter(x => x.argv[0] === '/bin/sh')
   const tar = shells.find(s => s.argv[2]!.includes('ls-files -o -i --exclude-standard -z --directory'))!
   expect(tar).toBeDefined()
-  expect(tar.argv[2]).toContain('-ignored.tgz')
+  expect(tar.env?.IGN).toMatch(/^env-ignored-\d{6}\.tgz$/)
   expect(tar.argv[2]).toContain('--exclude=node_modules')
   expect(tar.env?.WT).toBe(`${R}-env`)
   // Outside every worktree: not in the repo folder, not under any listed worktree.
@@ -93,7 +92,7 @@ test('5 and 11: ignored files are listed, tarred before removal; the session wor
   const tarAt = ran.findIndex(x => x === tar), rmAt = ran.findIndex(x => x.argv.includes('remove') && x.argv.includes(`${R}-env`))
   expect(tarAt).toBeGreaterThan(-1)
   expect(rmAt).toBeGreaterThan(tarAt)
-  expect(done).toContain(`1: removed ${R}-env (saved env-ignored.tgz`)
+  expect(done).toMatch(/1: removed \/Users\/sai\/repo-env \(saved env-ignored-\d{6}\.tgz/)
   expect(done).toContain(`2: removed ${R}-clean`)
   // Every shell step reads its paths from guarded variables.
   for (const s of shells) for (const v of s.argv[2]!.match(/\$\{\w+/g) ?? []) expect(s.argv[2]).toContain(`${v}:?}`)

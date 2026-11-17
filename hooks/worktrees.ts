@@ -22,9 +22,22 @@ export function parsePorcelain(text: string): { path: string; head?: string; bra
 }
 
 // Dependency and cache folders that a build recreates: ignored, but not worth a backup (nor a warning).
-export const REGENERABLE = ['node_modules', '.venv', 'venv', '__pycache__', '.next', '.turbo', '.pytest_cache', '.mypy_cache', '.ruff_cache']
+// Skipped wherever they sit in a path (a package's own node_modules, a nested __pycache__)...
+export const REGENERABLE = ['node_modules', '__pycache__', '.next', '.turbo', '.pytest_cache', '.mypy_cache', '.ruff_cache']
+// ...except virtualenvs, which are only the project's own venv at the top of the worktree (or inside one of the folders above):
+// a folder named venv deeper down (docs/venv, tools/.venv) may hold something that is not recreated.
+export const REGENERABLE_TOP = ['.venv', 'venv']
+export const isRegenerable = (entry: string) => {
+  const segs = entry.replace(/\/+$/, '').split('/')
+  return segs.some(seg => REGENERABLE.includes(seg)) || REGENERABLE_TOP.includes(segs[0] ?? '')
+}
 // The entries `git ls-files -o -i --exclude-standard --directory` gives, without the regenerable folders.
-export const ignoredEntries = (out: string) => out.split('\n').filter(l => l && !l.replace(/\/+$/, '').split('/').some(seg => REGENERABLE.includes(seg)))
+export const ignoredEntries = (out: string) => out.split('\n').filter(l => l && !isRegenerable(l))
+// The tar step of the ignored-files backup (paths come from the guarded variables WT, OUT and IGN): bsdtar's `^name$` anchors the top-level venvs.
+export const ignoredTarScript = () => {
+  const ex = [...REGENERABLE.map(d => `--exclude=${d}`), ...REGENERABLE_TOP.map(d => `'--exclude=^${d}$'`)].join(' ')
+  return `set -o pipefail; git -C "\${WT:?}" ls-files -o -i --exclude-standard -z --directory | tar -czf "\${OUT:?}/\${IGN:?}" -C "\${WT:?}" --null -T - ${ex}`
+}
 
 // Dirty work wins, then commits no remote has, then an open PR; clean and contained in a remote or merged is safe,
 // unless it holds ignored files (.env, local indexes) that no remote has: then it is not SAFE (removal backs them up).
@@ -135,10 +148,13 @@ export async function cleanPicked($: $, picks: number[]): Promise<string> {
     }
     // Ignored files (.env, local indexes) are in no commit and no remote: tar them too, minus the folders a build recreates.
     if (r.ignored) {
-      const ex = REGENERABLE.map(d => `--exclude=${d}`).join(' ')
-      const g = await run($, ['/bin/sh', '-c', `set -o pipefail; git -C "\${WT:?}" ls-files -o -i --exclude-standard -z --directory | tar -czf "\${OUT:?}/\${NAME:?}-ignored.tgz" -C "\${WT:?}" --null -T - ${ex}`], l.repo, 300000, env)
+      // A time stamp keeps a second removal of the same branch on the same day from overwriting the first backup.
+      const stamp = new Date(now).toISOString().slice(11, 19).replace(/:/g, '')
+      let ign = `${name}-ignored-${stamp}.tgz`
+      for (let k = 2; k < 100 && (await $.fs.stat(`${archive}/${ign}`).catch(() => undefined)); k++) ign = `${name}-ignored-${stamp}-${k}.tgz`
+      const g = await run($, ['/bin/sh', '-c', ignoredTarScript()], l.repo, 300000, { ...env, IGN: ign })
       if (!g.ok) { out.push(`${n}: saving ignored files failed (${g.err.slice(0, 120)}); nothing removed`); continue }
-      saved.push(`${name}-ignored.tgz`)
+      saved.push(ign)
     }
     // Every backup must be on disk before the worktree goes (a patch may be empty when only new files changed).
     const missing: string[] = []
