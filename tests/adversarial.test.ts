@@ -112,9 +112,15 @@ test('/review-adversarial shows the cost first, runs only on go, fixes between r
   expect(spawned).toHaveLength(2)
 })
 
-test('the reviewer agent type is never offered to the model', async ($, on) => {
-  const offered = await ($.agent as any).offer?.({ agent: ADVERSARY, description: 'x', source: 'plugin', provider: { plugin: 'agent-overview', tier: 'user' } }).catch(() => undefined)
-  if (offered) expect(offered.isOffered).toBe(false)
+test('a spawn of the reviewer agent type that the owner did not start is refused (this test used to pass vacuously)', async ($, on) => {
+  mock.clock(on); mock.store(on)
+  on('ui.invalidate', () => ({ value: undefined }))
+  on('session.id', () => ({ value: 'adv-refuse' }))
+  let started = 0
+  on('agent.spawn', () => { started++; return { model: 'm', agentId: 'x' } })
+  const ran = await ($.agent as any).spawn({ tool_use_id: 't', subagentType: ADVERSARY, model: 'claude-opus-5-5', description: 'Adversarial review round 1', prompt: 'review it' })
+  expect(ran.deny).toContain('/review-adversarial go')
+  expect(started).toBe(0)
 })
 
 test('Models shows a pending review with its cost; Run starts it and Cancel drops it', async ($, on) => {

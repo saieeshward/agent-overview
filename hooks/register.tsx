@@ -26,7 +26,7 @@ import { mergeFinding, stageDeny, workText } from './work/stage'
 import { geminiRun, vetImages } from './gemini'
 import { runsAgy } from './agyguard'
 import { cleanPicked, listWorktrees, listingText, parsePicks } from './worktrees'
-import { ADVERSARY, ADVERSARY_MODEL, ADVERSARY_PROMPT, cancel as cancelReview, mainTurnEnded, mainTurnStarted, noteReviewer, parseArgs, prepare as prepareReview, reviewerDone, startRound, statusText } from './adversarial'
+import { ADVERSARY, ADVERSARY_MODEL, ADVERSARY_PROMPT, cancel as cancelReview, mainTurnEnded, mainTurnStarted, noteReviewer, takeSpawn, parseArgs, prepare as prepareReview, reviewerDone, startRound, statusText } from './adversarial'
 import { escalation, failure, isEscalated } from './escalate'
 import type { Format } from './escalate'
 import { GEMINI_DEFAULT, GEMINI_MODELS, isDefaultVisual } from './policy'
@@ -464,7 +464,7 @@ async function checkTask($: EngineInterface, e: { tool_use_id: string; descripti
   if (isProblem(d)) {
     const item: RouteLogItem = { ...base, type: d.type, sensitivity: d.sensitivity, declared: d.problem, lane: 'claude', model: '', outcome: p.declare === 'block' ? 'denied' : p.declare === 'warn' ? 'warned' : 'running', note: d.fix }
     if (p.declare === 'block') return { deny: `Routing guard: ${d.fix}`, item }
-    return { item, warn: p.declare === 'warn' ? `Routing guard: "${e.description.slice(0, 40)}" ${d.problem === 'missing' ? 'has no task declaration' : `declares ${d.type ?? '?'}/${d.sensitivity ?? '?'}, not on the table`}` : undefined }
+    return { item, warn: p.declare === 'warn' ? `Routing guard: "${String(e.description ?? '').slice(0, 40)}" ${d.problem === 'missing' ? 'has no task declaration' : `declares ${d.type ?? '?'}/${d.sensitivity ?? '?'}, not on the table`}` : undefined }
   }
   // With declarations off the mod only records what was declared: it never moves a model or an effort.
   if (p.declare === 'off') return { item: { ...base, type: d.type, sensitivity: d.sensitivity, declared: 'ok', lane: 'claude', model: '', outcome: 'running' } }
@@ -1285,7 +1285,10 @@ export const register: Register = on => {
   on('agent.spawn', async ($, e, next) => {
     mark('agent.spawn')
     // The owner's own adversarial review: its reviewer, model and effort are the command's, outside the routing.
+    // Only the spawn startRound is making right now gets through (a run awaiting a round, its one-shot claim, its exact
+    // description); a model that names the type itself is refused, so it cannot start Opus without the cost confirmation.
     if (e.subagentType === ADVERSARY) {
+      if (!(await takeSpawn($, e.description))) return { deny: 'The review agent starts only from /review-adversarial go (or Run in the agent panel) after the cost is confirmed, never from a tool call.' }
       const startedAt = await $.clock.now()
       const node: AgentNode = { id: `${e.tool_use_id || 'review'}:${++seq}`, run: mainTurn, input: clip(e.prompt, 20000), label: e.description || 'Adversarial review', kind: 'adversary', model: e.model ?? ADVERSARY_MODEL, state: 'running', steps: 0, startedAt }
       await update($, nodes, all => [...all, node].slice(-60))

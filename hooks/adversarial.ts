@@ -37,7 +37,8 @@ export function reviewerOf(r: Routing): { model: string; rounds: number; note?: 
 export type Args = { action: 'prepare' | 'go' | 'cancel' | 'status'; base?: string; goal: string; rounds?: number }
 export function parseArgs(text: string): Args {
   const words = text.trim().split(/\s+/).filter(Boolean)
-  const first = words[0]?.toLowerCase()
+  // A command is the whole text: a goal that merely starts with "go" or "status" ("go through the auth flow") is a goal.
+  const first = words.length === 1 ? words[0]!.toLowerCase().replace(/[.!]+$/, '') : undefined
   if (first === 'go' || first === 'start' || first === 'yes') return { action: 'go', goal: '' }
   if (first === 'cancel' || first === 'stop') return { action: 'cancel', goal: '' }
   if (first === 'status') return { action: 'status', goal: '' }
@@ -129,25 +130,47 @@ export async function prepare($: $, args: Args, r: Routing, prices: Prices): Pro
     'It sees only the diff and the goal. Start it with /review-adversarial go (or Run in the agent panel); /review-adversarial cancel drops it.'
 }
 
+export const reviewDescription = (round: number, nonce: string) => `Adversarial review round ${round} #${nonce}`
+
+// The spawn hook's one question: is this the reviewer startRound is starting right now? Only while a run awaits a round
+// (confirm or fixing), with the exact description of the one-shot claim; the claim is used up by the first match.
+export async function takeSpawn($: $, description: unknown): Promise<boolean> {
+  const cur = await read($, run)
+  if ((cur.status !== 'confirm' && cur.status !== 'fixing') || !cur.nonce || !cur.desc || description !== cur.desc) return false
+  const mine = cur.nonce
+  let won = false
+  await update($, run, (x): AdversarialRun => { won = x.nonce === mine; return won ? { ...x, nonce: undefined } : x })
+  return won
+}
+
 export async function startRound($: $): Promise<string> {
   const cur = await read($, run)
   if (cur.status !== 'confirm' && cur.status !== 'fixing') return cur.status === 'running' ? 'The review is already running.' : 'Nothing to start: run /review-adversarial [base] [goal] first to see the cost.'
+  if (cur.starting) return 'The review is already starting.'
   const diff = await gatherDiff($, cur.base)
   const round = cur.round + 1
   if ('error' in diff) {
     await update($, run, (x): AdversarialRun => ({ ...x, status: 'done', note: diff.error }))
     return `Adversarial review stopped: ${diff.error}.`
   }
+  // Two near-simultaneous starts (the command and the panel button, a fix turn ending twice) race for one claim; the loser starts nothing.
+  const nonce = Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
+  const description = reviewDescription(round, nonce)
+  const claimed = await update($, run, (x): AdversarialRun => x.starting || (x.status !== 'confirm' && x.status !== 'fixing') ? x : { ...x, starting: true, nonce, desc: description })
+  if (claimed.nonce !== nonce && claimed.desc !== description) return 'The review is already starting.'
   const spawned = await $.agent.spawn({
-    subagentType: ADVERSARY, model: cur.model, description: `Adversarial review round ${round}`,
+    subagentType: ADVERSARY, model: cur.model, description,
     prompt: spawnPrompt(cur.goal, diff, round, cur.rounds),
-  } as Parameters<$['agent']['spawn']>[0])
+  } as Parameters<$['agent']['spawn']>[0]).catch(async err => {
+    await update($, run, (x): AdversarialRun => ({ ...x, nonce: undefined, starting: undefined }))
+    throw err
+  })
   if (spawned.deny) {
-    await update($, run, (x): AdversarialRun => ({ ...x, status: 'failed', note: spawned.deny }))
+    await update($, run, (x): AdversarialRun => ({ ...x, status: 'failed', nonce: undefined, starting: undefined, note: spawned.deny }))
     return `Adversarial review could not start: ${spawned.deny}`
   }
   const at = await $.clock.now()
-  await update($, run, (x): AdversarialRun => ({ ...x, status: 'running', round, agentId: spawned.agentId ?? x.agentId, fixTurn: undefined, at: x.at || at }))
+  await update($, run, (x): AdversarialRun => ({ ...x, status: 'running', round, nonce: undefined, starting: undefined, agentId: spawned.agentId ?? x.agentId, fixTurn: undefined, at: x.at || at }))
   return `Adversarial review round ${round} of ${cur.rounds} started on ${cur.model}. Findings land in the Review tab.`
 }
 
@@ -169,7 +192,7 @@ export async function reviewerDone($: $, agentId: string, answer: string, ok: bo
   const cur = await read($, run)
   if (cur.status !== 'running') return false
   // A spawn that did not hand back its id (a reload, a host that answers late) is known by its description.
-  const mine = cur.agentId ? cur.agentId === agentId : (await $.agent.list().catch(() => [])).some(a => a.id === agentId && a.description === `Adversarial review round ${cur.round}`)
+  const mine = cur.agentId ? cur.agentId === agentId : (await $.agent.list().catch(() => [])).some(a => a.id === agentId && a.description === cur.desc)
   if (!mine) return false
   const list = ok ? parseFindings(answer) : undefined
   if (!list) {
