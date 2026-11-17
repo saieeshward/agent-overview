@@ -24,6 +24,7 @@ import { PANE, drawBand, drawPane, fit, tok } from './view'
 import { IMPACT, shortModel, tableOf } from './ui'
 import { mergeFinding, stageDeny, workText } from './work/stage'
 import { geminiRun } from './gemini'
+import { ADVERSARY, ADVERSARY_MODEL, ADVERSARY_PROMPT, cancel as cancelReview, mainTurnEnded, mainTurnStarted, noteReviewer, parseArgs, prepare as prepareReview, reviewerDone, startRound, statusText } from './adversarial'
 import { escalation, failure, isEscalated } from './escalate'
 import type { Format } from './escalate'
 import { GEMINI_MODELS } from './policy'
@@ -76,6 +77,7 @@ const DECISION_TOOL = 'mcp__agent-overview__decision_log'
 const REVIEW_TOOL = 'mcp__agent-overview__review_log'
 const OLLAMA_TOOL = 'mcp__agent-overview__ollama_run'
 const GEMINI_TOOL = 'mcp__agent-overview__gemini_run'
+const REVIEW_PREP_TOOL = 'mcp__agent-overview__adversarial_review'
 
 export { providerOf as family } from './state'
 
@@ -944,6 +946,9 @@ export const register: Register = on => {
     await update($, providers, all => PROVIDERS.every(p => all[p.id]) ? all : { ...Object.fromEntries(PROVIDERS.map(p => [p.id, blank()])), ...all } as Providers)
     await $.command.register({ name: 'default', description: 'Open the Agent panel' })
     await $.command.register({ name: 'overview', description: 'Open the Agent panel (alias)' })
+    await $.command.register({ name: 'review-adversarial', description: 'Adversarial review of the diff by Claude Opus 5.5, on request: [base] [goal] shows the cost, then go | cancel | status' })
+    // The reviewer is spawned only by the command: the model never sees it as an agent type.
+    await $.agent.register({ name: 'adversary', description: 'Adversarial reviewer; started only by /review-adversarial', prompt: ADVERSARY_PROMPT, model: ADVERSARY_MODEL, effort: 'high', tools: ['Read', 'Grep', 'Glob'] }).catch(() => undefined)
     await $.tool.register({
       name: 'qa_log',
       isDeferred: false,
@@ -1009,6 +1014,23 @@ export const register: Register = on => {
           description: { type: 'string', description: 'A few words for the agent panel' },
         },
         required: ['prompt'],
+      },
+    })
+    await $.tool.register({
+      name: 'adversarial_review',
+      isDeferred: false,
+      description:
+        'Prepare an adversarial review, ONLY when Sai asks for one; never on your own initiative, never as a routine step. ' +
+        'It gathers the diff (against base, or the working tree vs HEAD), and returns the reviewer, rounds and estimated cost. ' +
+        'It starts nothing: tell Sai the estimate; he starts it with /review-adversarial go or Run in the agent panel. Findings land in the Review tab.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          goal: { type: 'string', description: 'What the change is meant to achieve, in one or two sentences' },
+          base: { type: 'string', description: 'A git ref to diff against; left out, the working tree against HEAD' },
+          rounds: { type: 'integer', minimum: 1, maximum: 5, description: "Left out, the owner's setting (2 by default)" },
+        },
+        required: ['goal'],
       },
     })
     await $.tool.register({
@@ -1108,6 +1130,18 @@ export const register: Register = on => {
     return next(e)
   })
 
+  on('agent.offer', { agent: ADVERSARY }, () => ({ isOffered: false }))
+
+  on('command.run', { command: 'review-adversarial' }, async ($, e) => {
+    mark('command.run')
+    const args = parseArgs(e.args)
+    const text = args.action === 'go' ? await startRound($)
+      : args.action === 'cancel' ? await cancelReview($)
+        : args.action === 'status' ? await statusText($)
+          : await prepareReview($, args, await read($, routing), await read($, prices))
+    return { text }
+  })
+
   on('command.run', { command: ['overview', 'default'] }, async $ => {
     mark('command.run')
     await $.ui.open({ id: PANE, title: 'Agent panel', focus: true })
@@ -1200,6 +1234,16 @@ export const register: Register = on => {
 
   on('agent.spawn', async ($, e, next) => {
     mark('agent.spawn')
+    // The owner's own adversarial review: its reviewer, model and effort are the command's, outside the routing.
+    if (e.subagentType === ADVERSARY) {
+      const startedAt = await $.clock.now()
+      const node: AgentNode = { id: `${e.tool_use_id || 'review'}:${++seq}`, run: mainTurn, input: clip(e.prompt, 20000), label: e.description || 'Adversarial review', kind: 'adversary', model: e.model ?? ADVERSARY_MODEL, state: 'running', steps: 0, startedAt }
+      await update($, nodes, all => [...all, node].slice(-60))
+      const ran = await next(e)
+      await setNode($, n => n.id === node.id, n => ({ ...n, agentId: ran.agentId, ...(ran.deny ? { state: 'failed' as const, endedAt: startedAt } : {}) }))
+      await noteReviewer($, ran.agentId)
+      return ran
+    }
     const r0 = await liveRouting($)
     const g = normalGuard(await read($, guard))
     if (!r0.on.claude) return { deny: 'Claude crew is off; use an enabled provider.' }
@@ -1296,6 +1340,7 @@ export const register: Register = on => {
     mark('turn.start', e.agentId ? 'turn.start:agent' : 'turn.start:main')
     refusedRoutes.delete(e.agentId ?? 'main')
     if (!e.agentId) {
+      await mainTurnStarted($, e.turnId)
       $.ui.invalidate('prompt.section')
       mainTurn = `turn:${e.turnId}`
       const since = await $.clock.now()
@@ -1321,6 +1366,7 @@ export const register: Register = on => {
     }
     if (e.agentId) {
       const agentId = e.agentId
+      await reviewerDone($, agentId, e.answer ?? '', e.reason === 'answer')
       await settleRoute($, x => x.agentId === agentId, { outcome: e.reason === 'answer' ? 'done' : 'failed', ms: e.durationMs, tokens: usage ? usage.input_tokens + usage.output_tokens + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0) : undefined })
       if (usage) {
         if (turnStart) turnStart.children[usage.model] = (turnStart.children[usage.model] ?? 0) + usage.output_tokens
@@ -1351,6 +1397,7 @@ export const register: Register = on => {
       }
       void update($, main, m => ({ ...m, working: false }))
       void refreshGit($)
+      await mainTurnEnded($, e.turnId)
     }
     const l = await read($, live)
     if (l && l.agent === e.agentId) await update($, live, () => null)
@@ -1459,6 +1506,10 @@ export const register: Register = on => {
     }
     if (e.tool === OLLAMA_TOOL) return ollamaRun($, e)
     if (e.tool === GEMINI_TOOL) return geminiTool($, e)
+    if (e.tool === REVIEW_PREP_TOOL) {
+      const text = await prepareReview($, { action: 'prepare', base: typeof e.base === 'string' && e.base.trim() ? e.base.trim() : undefined, goal: String(e.goal ?? ''), rounds: typeof e.rounds === 'number' ? Math.max(1, Math.min(5, Math.round(e.rounds))) : undefined }, await read($, routing), await read($, prices))
+      return { result: `${text}\nDo not start it yourself: only Sai starts it.` }
+    }
     if (e.tool === QA_TOOL || e.tool === GRILL_TOOL) {
       if ((await read($, ui)).area === 'vibe') return { result: 'QA logging suppressed in Vibe mode' }
       const item: GrillItem = { question: String(e.question ?? ''), answer: String(e.answer ?? ''), kind: e.kind === 'instruction' ? 'instruction' : 'answer', at: await $.clock.now() }

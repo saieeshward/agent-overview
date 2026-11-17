@@ -43,10 +43,13 @@ export function optimizeControls($: $, E: E, r: Routing) {
 }
 
 export function adversaryControls($: $, E: E, r: Routing) {
+  // Defaults for /review-adversarial, which runs only when the owner asks: a Claude reviewer (Opus 5.5 always offered) and rounds.
+  const claude = r.picks.filter(p => p.provider === 'claude')
+  const choices = claude.some(p => p.model === 'claude-opus-5-5') ? claude : [{ provider: 'claude' as const, model: 'claude-opus-5-5' }, ...claude]
   return <E.Box flexDirection="column" gap={1}>
-    {SettingsRow(E, 'adversary', 'Adversarial review', [
-      <E.Button key="adversary:off" plain onPress={() => saveRouting($, x => ({ ...x, adversary: null }))}>{Chip(E, 'Off', !r.adversary)}</E.Button>,
-      ...r.picks.map(pick => <E.Button key={`adversary:${pick.provider}/${pick.model}`} plain onPress={() => saveRouting($, x => ({ ...x, adversary: { provider: pick.provider, model: pick.model, rounds: x.adversary?.rounds ?? 2 } }))}>{Chip(E, shortModel(pick.model), r.adversary?.provider === pick.provider && r.adversary.model === pick.model, colorOf(pick.provider))}</E.Button>),
+    {SettingsRow(E, 'adversary', 'Adversarial review (on request)', [
+      <E.Button key="adversary:off" plain onPress={() => saveRouting($, x => ({ ...x, adversary: null }))}>{Chip(E, 'Default', !r.adversary)}</E.Button>,
+      ...choices.map(pick => <E.Button key={`adversary:${pick.provider}/${pick.model}`} plain onPress={() => saveRouting($, x => ({ ...x, adversary: { provider: pick.provider, model: pick.model, rounds: x.adversary?.rounds ?? 2 } }))}>{Chip(E, shortModel(pick.model), r.adversary?.provider === pick.provider && r.adversary.model === pick.model, colorOf(pick.provider))}</E.Button>),
     ])}
     {r.adversary ? SettingsRow(E, 'adversary:rounds', 'Review rounds', [1, 2, 3, 4, 5].map(rounds =>
       <E.Button key={`adversary:rounds:${rounds}`} plain onPress={() => saveRouting($, x => ({ ...x, adversary: x.adversary ? { ...x.adversary, rounds } : null }))}>{Chip(E, String(rounds), r.adversary!.rounds === rounds)}</E.Button>)) : null}

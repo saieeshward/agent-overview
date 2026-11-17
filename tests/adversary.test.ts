@@ -41,48 +41,31 @@ test('adversary model and rounds distinguish presets and missing matches off', (
   expect(presetKey({ ...r, adversary: { ...picks[1]!, rounds: 2 } })).not.toBe(presetKey(r))
 })
 
-test('routing adds one adversarial review line after optimize with the review and fix loop', () => {
-  expect(routingText(route())).not.toContain('Adversarial review:')
-  for (const rounds of [1, 2, 5]) for (const effort of [undefined, 'xhigh']) {
-    const r: Routing = { ...reviewed(), optimize: 'speed', adversary: { ...picks[0]!, effort, rounds }, picks: [{ ...picks[0]!, effort }, picks[1]!] }
-    const lines = routingText(r).split('\n')
-    const line = lines[lines.indexOf(optimizeText(r)) + 1]!
-    expect(lines.filter(l => l.startsWith('Adversarial review:'))).toHaveLength(1)
-    expect(line).toContain(`gpt-6.1-sol${effort ? ` (${effort})` : ''} on Codex`)
-    expect(line).toContain(routingHow(r, 'codex', 'gpt-6.1-sol', effort))
-    for (const text of ['code or other deliverables', 'try to break the change', 'file:line', 'no style nits', 'model that did the work to fix', 'then review again', `Up to ${rounds} rounds`, 'stop early when a round finds nothing real', 'Skip it for questions and trivial edits']) expect(line).toContain(text)
+// Adversarial review runs only when the owner asks: the routing says so in one line and never sets up a loop.
+test('routing has one on-request adversarial review line, naming the owner\'s Claude reviewer or Opus 5.5', () => {
+  const line = (r: Routing) => routingText(r).split('\n').filter(l => l.startsWith('Adversarial review:'))
+  for (const r of [route(), reviewed(), { ...route(), role: 'claude' as const }, { ...reviewed(), on: { ...reviewed().on, codex: false } }]) {
+    expect(line(r)).toHaveLength(1)
+    for (const text of ['only when Sai asks', 'never on your own', 'never as a routine step', 'mcp__agent-overview__adversarial_review', '/review-adversarial go']) expect(line(r)[0]).toContain(text)
+    for (const loop of ['then review again', 'model that did the work to fix', 'after any change']) expect(line(r)[0]).not.toContain(loop)
   }
+  expect(line(route())[0]).toContain('claude-opus-5-5 at high effort for up to 2 rounds')
+  // A non-Claude pick stays a default in the panel, but the reviewer is Opus 5.5.
+  expect(line(reviewed())[0]).toContain('claude-opus-5-5')
+  const claude: Routing = { ...route(), adversary: { ...picks[1]!, rounds: 3 } }
+  expect(line(claude)[0]).toContain('claude-sonnet-5 at high effort for up to 3 rounds')
 })
 
-test('routing and plan handoff omit unavailable reviewers and respect the Claude-only role', () => {
-  const r = reviewed()
-  const unavailable: Routing[] = [
-    { ...r, on: { ...r.on, codex: false } },
-    { ...r, paused: { codex: { why: 'quota', at: NOW, until: NOW + 60000 } } },
-    withPicks(r, picks.slice(1)),
-    { ...r, role: 'claude' },
-  ]
-  for (const x of unavailable) expect(routingText(x)).not.toContain('Adversarial review:')
-  for (const x of unavailable.slice(0, 3)) expect(handoffText({ ...x, role: 'plan' }) ?? '').not.toContain('Adversarial review:')
-  const claude: Routing = { ...r, adversary: { ...picks[1]!, rounds: 3 }, role: 'claude' }
-  const line = routingText(claude).split('\n').find(l => l.startsWith('Adversarial review:'))!
-  expect(line).toContain('claude-sonnet-5 (high) on Claude')
-  expect(line).toContain(routingHow(claude, 'claude', 'claude-sonnet-5', 'high'))
-  expect(routingText({ ...claude, on: { ...claude.on, claude: false } })).not.toContain('Adversarial review:')
-  expect(routingText({ ...claude, paused: { claude: { why: 'quota', at: NOW, until: NOW + 60000 } } })).not.toContain('Adversarial review:')
-  expect(handoffText({ ...claude, role: 'plan' })).not.toContain('Adversarial review:')
-  const agy = normalRouting({ ...r, agyCoding: false, agyVisual: false, picks: [{ provider: 'antigravity', model: 'gemini-4-argon-high' }], adversary: { provider: 'antigravity', model: 'gemini-4-argon-high', rounds: 2 } })
-  expect(routingText(agy)).not.toContain('Adversarial review:')
-  expect(routingText({ ...agy, agyCoding: true })).toContain('Adversarial review:')
-})
-
-test('plan handoff appends the short review loop after optimize', () => {
+test('a planner is never told to run adversarial review', () => {
   const r: Routing = { ...reviewed(), role: 'plan', optimize: 'balanced' }
+  expect(handoffText(r)).not.toContain('Adversarial review:')
   expect(handoffText({ ...r, adversary: null })).not.toContain('Adversarial review:')
-  const text = handoffText(r)!
-  expect(text).toContain(`${optimizeText(r)} Adversarial review:`)
-  for (const part of ['gpt-6.1-sol (xhigh) on Codex', routingHow(r, 'codex', 'gpt-6.1-sol', 'xhigh'), 'file:line', 'working model fix findings, then review again', 'up to 2 rounds', 'stop when nothing real is found', 'Skip questions and trivial edits']) expect(text).toContain(part)
   expect(handoffText({ ...r, role: 'auto' })).toBeUndefined()
+})
+
+test('Opus 5.5 is a reviewer the owner can keep without pinning it', () => {
+  expect(normalRouting({ ...route(), adversary: { provider: 'claude', model: 'claude-opus-5-5', rounds: 3 } }).adversary).toMatchObject({ provider: 'claude', model: 'claude-opus-5-5', rounds: 3 })
+  expect(normalRouting({ ...route(), adversary: { provider: 'claude', model: 'claude-opus-4', rounds: 3 } }).adversary).toBeNull()
 })
 
 function setup(on: On, view: 'Models' | 'Provider' | 'Crew') {
@@ -105,29 +88,31 @@ const walk = (n: any): any[] => n && typeof n === 'object' ? [n, ...(n.children 
 for (const surface of ['desktop', 'terminal'] as const) for (const view of ['Models', 'Provider', 'Crew'] as const) test(`adversary chips and rounds persist per preset in ${view} (${surface})`, { timeoutMs: 20000 }, async ($, on) => {
   const { state, store } = setup(on, view)
   const picks = state.routing.picks as Routing['picks']
-  const pick = picks.find(p => p.provider === 'codex')!, other = picks.find(p => p.provider === 'claude')!
+  const opus = { provider: 'claude' as const, model: 'claude-opus-5-5' }, other = picks.find(p => p.provider === 'claude')!
   store.presets = [{ name: 'A', routing: copy(state.routing) }, { name: 'B', routing: { ...copy(state.routing), adversary: { ...other, rounds: 1 } } }]
   const ui = await $.ui.mount({ plugin: 'agent-overview', surface, component: 'Pane', requestId: 'agent-overview', props })
   expect(await ui.find({ key: 'adversary' })).toBeDefined()
   expect(await ui.find({ key: 'adversary:rounds' })).toBeUndefined()
-  for (const p of picks) {
+  // Only Claude reviewers are offered, Opus 5.5 always among them.
+  for (const p of [opus, ...picks.filter(p => p.provider === 'claude')]) {
     const button = await ui.find({ key: `adversary:${p.provider}/${p.model}` })
     expect(walk(button).some(n => n.type === 'Text' && n.children?.join('').trim() === shortModel(p.model))).toBe(true)
   }
+  for (const p of picks.filter(p => p.provider !== 'claude')) expect(await ui.find({ key: `adversary:${p.provider}/${p.model}` })).toBeUndefined()
   await ui.press({ key: 'preset:saved:A' })
   if (view === 'Provider') await ui.press({ key: 'open:codex' })
-  await ui.press({ key: `adversary:${pick.provider}/${pick.model}` })
-  expect(state.routing.adversary).toEqual({ ...pick, rounds: 2 })
-  const selected = walk(await ui.find({ key: `adversary:${pick.provider}/${pick.model}` })).find(n => n.type === 'Text' && n.props.weight === 'bold')
-  expect(selected.props[surface === 'desktop' ? 'backgroundColor' : 'color']).toBe(colorOf(pick.provider))
+  await ui.press({ key: `adversary:${opus.provider}/${opus.model}` })
+  expect(state.routing.adversary).toMatchObject({ ...opus, rounds: 2 })
+  const selected = walk(await ui.find({ key: `adversary:${opus.provider}/${opus.model}` })).find(n => n.type === 'Text' && n.props.weight === 'bold')
+  expect(selected.props[surface === 'desktop' ? 'backgroundColor' : 'color']).toBe(colorOf('claude'))
   for (const rounds of [1, 2, 3, 4, 5]) {
     await ui.press({ key: `adversary:rounds:${rounds}` })
     expect(state.routing.adversary.rounds).toBe(rounds)
     expect(walk(await ui.find({ key: `adversary:rounds:${rounds}` })).some(n => n.props?.weight === 'bold')).toBe(true)
   }
-  expect(store.routing.adversary).toEqual({ ...pick, rounds: 5 })
-  expect(store['routing:adversary'].adversary).toEqual({ ...pick, rounds: 5 })
-  expect(store.presets.find((p: any) => p.name === 'A').routing.adversary).toEqual({ ...pick, rounds: 5 })
+  expect(store.routing.adversary).toMatchObject({ ...opus, rounds: 5 })
+  expect(store['routing:adversary'].adversary).toMatchObject({ ...opus, rounds: 5 })
+  expect(store.presets.find((p: any) => p.name === 'A').routing.adversary).toMatchObject({ ...opus, rounds: 5 })
   if (view === 'Provider') await ui.press({ key: 'edit:back' })
   await ui.press({ key: 'preset:saved:B' })
   expect(state.routing.adversary).toEqual({ ...other, rounds: 1 })
@@ -137,7 +122,7 @@ for (const surface of ['desktop', 'terminal'] as const) for (const view of ['Mod
   expect(await ui.find({ key: 'adversary:rounds' })).toBeUndefined()
   if (view === 'Provider') await ui.press({ key: 'edit:back' })
   await ui.press({ key: 'preset:saved:A' })
-  expect(state.routing.adversary).toEqual({ ...pick, rounds: 5 })
+  expect(state.routing.adversary).toMatchObject({ ...opus, rounds: 5 })
   expect(store.presets.find((p: any) => p.name === 'B').routing.adversary).toBeNull()
   expect(await ui.find({ type: 'Text', text: /^panel error:/ })).toBeUndefined()
   await ui.unmount()

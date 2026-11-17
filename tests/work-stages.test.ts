@@ -401,7 +401,7 @@ test('session start registers the review logging schema', async ($, on) => {
   on('fs.list', () => ({ value: [] }))
   await ($.session as any).start({ cwd: '/test', surface: 'desktop', isInteractive: true })
   await clock.settle()
-  expect(commands).toEqual(['default', 'overview', 'handover', 'mode', 'preset', 'guard', 'usage', 'decisions'])
+  expect(commands).toEqual(['default', 'overview', 'review-adversarial', 'handover', 'mode', 'preset', 'guard', 'usage', 'decisions'])
   expect(registered.find(t => t.name === 'review_log')).toMatchObject({ isDeferred: false, inputSchema: { required: ['file', 'severity', 'text', 'by'], properties: { severity: { enum: ['high', 'medium', 'low'] }, line: { type: 'integer' } } } })
 })
 

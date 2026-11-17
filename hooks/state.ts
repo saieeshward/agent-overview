@@ -208,7 +208,8 @@ export const normalRouting = (saved: unknown): Routing => {
     paused: Object.fromEntries(Object.entries(s.paused ?? {}).filter(([p, v]) => OTHERS.includes(p as Provider) && v && typeof v.until === 'number')),
   }
   const a = s.adversary
-  const pick = a && typeof a.model === 'string' && r.picks.find(x => x.provider === a.provider && x.model === a.model)
+  // Opus 5.5 is always a reviewer the owner can pick, pinned or not.
+  const pick = a && typeof a.model === 'string' && (r.picks.find(x => x.provider === a.provider && x.model === a.model) || (a.provider === 'claude' && a.model === 'claude-opus-5-5' ? { provider: 'claude' as const, model: a.model, effort: undefined } : undefined))
   if (a && pick) r.adversary = { provider: pick.provider, model: pick.model, effort: pick.effort, rounds: typeof a.rounds === 'number' && Number.isFinite(a.rounds) ? Math.max(1, Math.min(5, Math.round(a.rounds))) : 2 }
   return withPicks(r, r.picks)
 }
@@ -435,15 +436,13 @@ const noted = (x: Routing['picks'][number]) => (x.note ? ` (note: ${x.note})` : 
 // `over` lists providers past the owner's daily spend cap: they are used last.
 export const optimizeText = (r: Routing) => r.optimize === 'balanced' ? 'Between models that suit a task equally, pick the faster.' : r.optimize === 'speed' ? 'Prefer the fastest allowed model that can still do the task well.' : ''
 
+// Adversarial review is the owner's to ask for: the model never starts one, and a planner is never told to.
+// The owner's setting (a Claude model and rounds) is only the default for /review-adversarial.
 const adversaryText = (r: Routing, short = false) => {
+  if (short) return ''
   const a = r.adversary
-  if (!a) return ''
-  const pick = livePicks(r).find(x => x.provider === a.provider && x.model === a.model)
-  if (!pick || !r.on[pick.provider] || r.paused?.[pick.provider]) return ''
-  const model = `${pick.model}${pick.effort ? ` (${pick.effort})` : ''} on ${nameOf(pick.provider)}`
-  return short
-    ? `Adversarial review: after changes, have ${model} try to break the deliverables via ${routingHow(r, pick.provider, pick.model, pick.effort)}; list concrete defects with file:line, no style nits. Have the working model fix findings, then review again, up to ${a.rounds} rounds; stop when nothing real is found. Skip questions and trivial edits.`
-    : `Adversarial review: after any change to code or other deliverables, have ${model} review it adversarially, run with ${routingHow(r, pick.provider, pick.model, pick.effort)}: tell it to try to break the change and list concrete defects with file:line, no style nits. Give its findings to the model that did the work to fix, then review again. Up to ${a.rounds} rounds; stop early when a round finds nothing real. Skip it for questions and trivial edits.`
+  const who = a?.provider === 'claude' ? a.model : 'claude-opus-5-5'
+  return `Adversarial review: only when Sai asks for one; never on your own and never as a routine step after changes. Then call adversarial_review (mcp__agent-overview__adversarial_review) with the goal, and a base ref if he names one: it shows him the cost of ${who} at high effort for up to ${a?.rounds ?? 2} rounds, and he starts it with /review-adversarial go.`
 }
 
 // What Ollama is for and which local models it may run: the owner's allowed ones, else every installed one.

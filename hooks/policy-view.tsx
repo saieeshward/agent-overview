@@ -1,7 +1,8 @@
 import { atom, read, update } from 'claude-code'
-import type { Confidential, Lane, Policy, Providers, RouteLogItem, TaskType, Ui } from '../types'
+import type { AdversarialRun, Confidential, Lane, Policy, Providers, RouteLogItem, TaskType, Ui } from '../types'
 import { CLAUDE_MODELS, CLIENT_PATTERNS, EFFORTS, onAllowlist, GEMINI_MODELS, LANES, OLLAMA_DEFAULT, TASK_TYPES, defaultPolicy, laneName, savePolicy } from './policy'
 import { allOf, blank, isEmbedder } from './state'
+import { ADVERSARY_MODEL, cancel as cancelReview, startRound } from './adversarial'
 import { Card, Chip, Fold, SettingsRow, ago, fit, padR, shortModel, tok } from './ui'
 import type { $, E } from './ui'
 
@@ -11,6 +12,7 @@ const providers = atom({ plugin: 'agent-overview', key: 'providers' } as const, 
   claude: blank(), codex: blank(), commandcode: blank(), opencode: blank(), antigravity: blank(), ollama: blank(),
 } as Providers)
 const confidential = atom({ plugin: 'agent-overview', key: 'confidential' } as const, { cwd: '', found: [], sources: [] } as Confidential)
+const adversarial = atom({ plugin: 'agent-overview', key: 'adversarial' } as const, { status: 'idle', base: '', goal: '', model: ADVERSARY_MODEL, round: 0, rounds: 2, diffChars: 0, files: 0, found: 0, at: 0 } as AdversarialRun)
 const ui = atom({ plugin: 'agent-overview', key: 'ui' } as const, { tab: 'dashboard', pick: 'claude' } as Ui)
 
 const LANE_COLOR: Record<Lane, string> = { claude: 'claude', ollama: '#C026D3', gemini: '#4285F4' }
@@ -102,4 +104,24 @@ export async function confidentialCard($: $, E: E, w: number) {
       }} />
       : <E.Button key="conf:pattern:add" plain onPress={() => update($, ui, x => ({ ...x, confirm: 'conf:pattern' }))}><E.Text color="suggestion">+ confidential pattern</E.Text></E.Button>}
   </E.Box>, { aside: <E.Text dimColor>Antigravity only</E.Text> })
+}
+
+// The owner's adversarial review in flight: its cost before it runs, Run and Cancel, and how far it got.
+export async function adversarialCard($: $, E: E) {
+  const a = await read($, adversarial)
+  if (a.status === 'idle') return null
+  const color = a.status === 'confirm' ? 'warning' : a.status === 'failed' ? 'error' : a.status === 'done' ? 'subtle' : 'suggestion'
+  const usd = (a.estimate ?? 0).toFixed(2)
+  const head = a.status === 'confirm'
+    ? `${a.files} file${a.files === 1 ? '' : 's'} vs ${a.base} · ${shortModel(a.model)} high · up to ${a.rounds} round${a.rounds === 1 ? '' : 's'} · about ${usd} USD`
+    : `${a.status} · round ${a.round} of ${a.rounds} · ${a.found} finding${a.found === 1 ? '' : 's'}`
+  return Card(E, 'card:adversarial', 'ADVERSARIAL REVIEW', color, <E.Box flexDirection="column">
+    <E.Text wrap="wrap">{head}</E.Text>
+    {a.goal ? <E.Text dimColor wrap="wrap">goal: {a.goal}</E.Text> : null}
+    {a.note ? <E.Text dimColor wrap="wrap">{a.note}</E.Text> : null}
+    {a.status === 'confirm' || a.status === 'running' || a.status === 'fixing' ? <E.Box flexDirection="row" gap={2}>
+      {a.status === 'confirm' ? <E.Button key="adversarial:run" plain onPress={async () => $.ui.toast(await startRound($))}>{Chip(E, 'Run', true, 'warning')}</E.Button> : null}
+      <E.Button key="adversarial:cancel" plain onPress={async () => $.ui.toast(await cancelReview($))}><E.Text color="error">Cancel</E.Text></E.Button>
+    </E.Box> : null}
+  </E.Box>, { aside: <E.Text dimColor>on request · findings in Review</E.Text> })
 }

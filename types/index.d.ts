@@ -223,6 +223,12 @@ export type RouteLogItem = {
 }
 // This session's project and the confidential paths its own rules name (CLAUDE.md, a .clan file).
 export type Confidential = { cwd: string; found: string[]; sources: string[] }
+// The owner-requested adversarial review: confirm shows the cost first; fixing waits for the main turn that fixes.
+export type AdversarialRun = {
+  status: 'idle' | 'confirm' | 'running' | 'fixing' | 'done' | 'failed'
+  base: string; goal: string; model: string; round: number; rounds: number; estimate?: number
+  diffChars: number; files: number; agentId?: string; fixTurn?: string; found: number; note?: string; at: number
+}
 export type HookCheck = { session: string; ran: Record<string, number>; bypassed: Record<string, string> }
 
 // What the owner set for delegated work; saved across sessions in $.store.
@@ -293,6 +299,7 @@ declare module 'claude-code' {
       policy: Policy
       routeLog: RouteLogItem[]
       confidential: Confidential
+      adversarial: AdversarialRun
     }
   }
 }
