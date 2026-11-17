@@ -39,6 +39,7 @@ test('worktree listing, verdicts and picks', () => {
 
 test('/clean-worktrees lists with numbers, removes only the picked ones after backing them up, through guarded paths', async ($, on) => {
   const clock = mock.clock(on); mock.store(on)
+  mock.env(on, { HOME: '/home/t' })
   on('ui.invalidate', () => ({ value: undefined }))
   on('session.cwd', () => ({ value: R }))
   const ran: { argv: string[]; cwd?: string; env?: Record<string, string> }[] = []
@@ -92,7 +93,7 @@ test('/clean-worktrees lists with numbers, removes only the picked ones after ba
     expect(s.argv[2]).not.toContain(R)
     for (const v of s.argv[2]!.match(/\$\{\w+/g) ?? []) expect(s.argv[2]).toContain(`${v}:?}`)
   }
-  const archive = new RegExp(`^${R}/archive/\\d{4}-\\d{2}-\\d{2}-worktrees$`)
+  const archive = /^\/home\/t\/\.claude\/worktree-backups\/repo\/\d{4}-\d{2}-\d{2}$/
   expect(shells.some(s => s.argv[2]!.includes('bundle create') && s.env?.WT === `${R}-push` && archive.test(s.env?.OUT ?? ''))).toBe(true)
   expect(shells.some(s => s.argv[2]!.includes('diff HEAD --binary') && s.env?.WT === `${R}-wip`)).toBe(true)
   expect(done).toContain(`1: removed ${R}-wip (saved wip.bundle, wip.patch, wip-untracked.tgz`)
