@@ -1,0 +1,1 @@
+{"name": "agent-overview", "version": "0.1.0", "description": "Default panel: agents graph by model, live view, model routing, usage and cost, review queue, QA and settings", "types": "./types/index.d.ts"}
