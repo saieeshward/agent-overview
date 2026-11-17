@@ -73,7 +73,7 @@ export async function savePolicy($: $, change: (p: Policy) => Policy) {
 
 // ---------- the declaration every Agent spawn starts its description with ----------
 
-export type Declaration = { type: TaskType; sensitivity: Sensitivity; rest: string }
+export type Declaration = { type: TaskType; sensitivity: Sensitivity; rest: string; effort?: string }
 export type DeclarationProblem = { problem: 'missing' | 'off-table'; type?: string; sensitivity?: string; fix: string }
 
 const EXAMPLE = 'task:build sensitivity:internal Add the CSV parser'
@@ -81,7 +81,7 @@ export const declarationFix = (why: string) =>
   `${why} Start the Agent description with "task:<type> sensitivity:<client|internal|public>", e.g. "${EXAMPLE}". Types: ${TASK_TYPES.join(', ')}.`
 
 export function parseDeclaration(description: string): Declaration | DeclarationProblem {
-  const head = /^\s*task:\s*([\w-]+)\s+sensitivity:\s*([\w-]+)\s*(.*)$/is.exec(description ?? '')
+  const head = /^\s*task:\s*([\w-]+)\s+sensitivity:\s*([\w-]+)(?:\s+effort:\s*([\w-]+))?\s*(.*)$/is.exec(description ?? '')
   if (!head) {
     const type = /\btask:\s*([\w-]+)/i.exec(description ?? '')?.[1]
     const sensitivity = /\bsensitivity:\s*([\w-]+)/i.exec(description ?? '')?.[1]
@@ -90,7 +90,15 @@ export function parseDeclaration(description: string): Declaration | Declaration
   const type = head[1]!.toLowerCase(), sensitivity = head[2]!.toLowerCase()
   if (!TASK_TYPES.includes(type as TaskType)) return { problem: 'off-table', type, sensitivity, fix: declarationFix(`"${type}" is not a task type in the owner's table.`) }
   if (!SENSITIVITIES.includes(sensitivity as Sensitivity)) return { problem: 'off-table', type, sensitivity, fix: declarationFix(`"${sensitivity}" is not a sensitivity.`) }
-  return { type: type as TaskType, sensitivity: sensitivity as Sensitivity, rest: head[3]!.trim() }
+  const effort = head[3]?.toLowerCase()
+  if (effort && !EFFORTS.includes(effort)) return { problem: 'off-table', type, sensitivity, fix: declarationFix(`"${effort}" is not an effort (${EFFORTS.join(', ')}).`) }
+  return { type: type as TaskType, sensitivity: sensitivity as Sensitivity, rest: head[4]!.trim(), ...(effort ? { effort } : {}) }
+}
+
+// A declaration may ask for less effort than the owner's table gives, never more: the table is the ceiling.
+export function lowerEffort(table: string | undefined, asked: string | undefined): string | undefined {
+  if (!table || !asked) return table
+  return EFFORTS.indexOf(asked) < EFFORTS.indexOf(table) ? asked : table
 }
 export const isProblem = (d: Declaration | DeclarationProblem): d is DeclarationProblem => 'problem' in d
 
@@ -138,7 +146,7 @@ export function declarationText(p: Policy, open: Pick<Lanes, 'ollama' | 'gemini'
     return `${t} → ${routeLabel(run)}${x.lane !== 'claude' && live ? ` via ${x.lane === 'ollama' ? 'ollama_run' : 'gemini_run'}, no subagent` : ''}${t === 'visual' && isDefaultVisual(x) && open.gemini ? `; public images → Gemini ${GEMINI_DEFAULT} via gemini_run` : ''}`
   })
   return [
-    `Task declarations (${p.declare === 'block' ? 'enforced: undeclared spawns are refused' : 'checked: undeclared spawns are flagged to the owner'}): start every Agent description with "task:<type> sensitivity:<client|internal|public>", e.g. "${EXAMPLE}". The mod sets the model and effort from this table: ${rows.join('; ')}.`,
+    `Task declarations (${p.declare === 'block' ? 'enforced: undeclared spawns are refused' : 'checked: undeclared spawns are flagged to the owner'}): start every Agent description with "task:<type> sensitivity:<client|internal|public>", e.g. "${EXAMPLE}". The mod sets the model and effort from this table: ${rows.join('; ')}. To run one call at less effort than its row, add "effort:<level>" after the sensitivity (lower only; the table is the ceiling).`,
     'Sensitivity client means client material (briefs, client files, metrics): it never goes to Gemini or any cloud side lane.',
   ].join('\n')
 }

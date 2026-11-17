@@ -31,7 +31,7 @@ import { escalation, failure, isEscalated } from './escalate'
 import type { Format } from './escalate'
 import { GEMINI_DEFAULT, GEMINI_MODELS, isDefaultVisual } from './policy'
 import { flushCheck, mark, markCount, readDebugLog, startCheck } from './hookcheck'
-import { FALLBACK, CLIENT_PATTERNS, clientHit, strictest, sideSensitivity, cloudCheck, declarationText, defaultPolicy, isProblem, neverCommitPatterns, laneName, laneTool, lanesOpen, loadPolicy, logRoute, parseDeclaration, resolveRoute, settleRoute } from './policy'
+import { FALLBACK, CLIENT_PATTERNS, clientHit, strictest, sideSensitivity, cloudCheck, declarationText, defaultPolicy, isProblem, neverCommitPatterns, laneName, laneTool, lanesOpen, loadPolicy, logRoute, lowerEffort, parseDeclaration, resolveRoute, settleRoute } from './policy'
 import type { Resolved } from './policy'
 
 // State lives here as well as beside the other hooks: the engine lists each file's reads and writes from its own consts.
@@ -471,6 +471,7 @@ async function checkTask($: EngineInterface, e: { tool_use_id: string; descripti
   let route = resolveRoute(p, d.type, await openLanes($, d.sensitivity), d.sensitivity)
   // A side lane's failed answer comes back to Claude once, by design: run it on the lane's Claude step up.
   if (route.declared.lane !== 'claude' && !route.moved && isEscalated(d.rest)) route = { ...FALLBACK[route.declared.lane as Exclude<Lane, 'claude'>], declared: route.declared, moved: `escalated from ${laneName(route.declared.lane)}` }
+  if (route.lane === 'claude') route = { ...route, effort: lowerEffort(route.effort, d.effort) as typeof route.effort }
   const item: RouteLogItem = { ...base, type: d.type, sensitivity: d.sensitivity, declared: 'ok', lane: route.lane, model: route.model, effort: route.effort, outcome: 'running', note: route.moved ? `${laneName(route.declared.lane)} unavailable: ${route.moved}` : undefined }
   // A task the table gives to a side lane is called directly there; a subagent for it is the wrong lane.
   if (route.declared.lane !== 'claude' && !route.moved) {
@@ -1604,7 +1605,7 @@ export const register: Register = on => {
       if (!isProblem(d)) {
         const policy0 = await read($, policy)
         const route = policy0.declare === 'off' ? undefined : resolveRoute(policy0, d.type, await openLanes($, d.sensitivity), d.sensitivity)
-        const effort = !route ? undefined : route.lane === 'claude' ? route.effort : FALLBACK[route.lane].effort
+        const effort = lowerEffort(!route ? undefined : route.lane === 'claude' ? route.effort : FALLBACK[route.lane].effort, d.effort)
         if (effort && effort !== e.effort) sent = { ...call, effort } as typeof call
       }
     }
