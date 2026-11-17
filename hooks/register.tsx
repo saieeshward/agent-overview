@@ -36,6 +36,10 @@ import type { Resolved } from './policy'
 
 // State lives here as well as beside the other hooks: the engine lists each file's reads and writes from its own consts.
 const nodes = atom({ plugin: 'agent-overview', key: 'nodes' } as const, [] as AgentNode[])
+// What each spawned agent declared, kept apart from `nodes` (capped at 60) so a busy session cannot evict it; its own cap is 500.
+type KeptSens = { agentId: string; sensitivity?: string; parent?: string; escalated?: boolean }
+const agentSens = atom({ plugin: 'agent-overview', key: 'agentSens' } as const, [] as KeptSens[])
+const AGENT_SENS_CAP = 500
 const grill = atom({ plugin: 'agent-overview', key: 'grill' } as const, [] as GrillItem[])
 const decisions = atom({ plugin: 'agent-overview', key: 'decisions' } as const, [] as DecisionItem[])
 const edits = atom({ plugin: 'agent-overview', key: 'edits' } as const, [] as EditItem[])
@@ -438,18 +442,25 @@ async function loadConfidential($: EngineInterface) {
 // The strictest sensitivity declared along an agent's chain (itself and its parents), and whether it was sent here by an
 // escalation. A word that is not public, internal or client counts as client.
 async function chainInfo($: EngineInterface, agentId?: string): Promise<{ sensitivity?: Sensitivity; escalated: boolean }> {
+  // The main thread has no agent id: its own argument and declaration are all there is.
   if (!agentId) return { escalated: false }
-  const list = await read($, nodes), log = await read($, routeLog)
-  const declared: (string | undefined)[] = []
+  const list = await read($, nodes), log = await read($, routeLog), kept = await read($, agentSens)
+  const declared: string[] = []
   let escalated = false
-  let n = list.find(x => x.agentId === agentId)
-  for (let i = 0; n && i < 20; i++) {
-    const at = n
-    declared.push(at.sensitivity ?? log.find(x => x.agentId === at.agentId && x.tool === 'Agent')?.sensitivity)
-    if (at.escalated) escalated = true
-    n = at.parentNode ? list.find(x => x.id === at.parentNode) : undefined
+  let n = list.find(x => x.agentId === agentId), id: string | undefined = agentId
+  for (let i = 0; i < 20; i++) {
+    const k = id ? kept.find(x => x.agentId === id) : undefined
+    const d = n?.sensitivity ?? (id ? log.find(x => x.agentId === id && x.tool === 'Agent')?.sensitivity : undefined) ?? k?.sensitivity
+    // A subagent whose node is gone, or that declared nothing (undeclared, fork, resume, teammate), counts as internal: fail closed.
+    declared.push(d ?? 'internal')
+    if (n?.escalated || k?.escalated) escalated = true
+    let next: AgentNode | undefined, nextId: string | undefined
+    if (n?.parentNode) { next = list.find(x => x.id === n!.parentNode); nextId = next?.agentId ?? n.parentId }
+    else { nextId = n?.parentId ?? k?.parent; next = nextId ? list.find(x => x.agentId === nextId) : undefined }
+    if (n?.parentNode && !next && !nextId) { declared.push('internal'); break }
+    if (!next && !nextId) break
+    n = next; id = nextId
   }
-  if (!list.some(x => x.agentId === agentId)) declared.push(log.find(x => x.agentId === agentId && x.tool === 'Agent')?.sensitivity)
   return { sensitivity: strictest(declared), escalated }
 }
 const ESCALATED_DENY = 'This agent was started to redo a task a side lane could not answer: side lanes are closed to it. Do the task yourself in Claude.'
@@ -771,6 +782,7 @@ async function geminiTool($: EngineInterface, e: Loose): Promise<ToolCallResult>
   const vet = await vetImages($, e.images, cwd, text => { const hit = clientHit(text, patterns); return hit ? `names a confidential path (${hit})` : undefined })
   if ('error' in vet) return { deny: `Antigravity refused: ${vet.error}` }
   const images = vet.paths
+  const imageIds = 'ids' in vet ? vet.ids : undefined
   // Gemini's sandbox is not proven to keep it to the files given, so this lane takes public material only.
   const cloud = await cloudOk($, { sensitivity, text: [prompt, ...images].join('\n'), publicOnly: true })
   if (!cloud.allowed) return { deny: `Antigravity refused: ${cloud.why}. Do this in Claude, or on Ollama (ollama_run) for private text.` }
@@ -785,7 +797,7 @@ async function geminiTool($: EngineInterface, e: Loose): Promise<ToolCallResult>
   const d = parseDeclaration(String(e.description ?? ''))
   await logRoute($, { at: startedAt, id: e.tool_use_id, tool: 'gemini_run', label: node.label, declared: isProblem(d) ? 'exempt' : 'ok', type: isProblem(d) ? (images.length ? 'visual' : undefined) : d.type, sensitivity, lane: 'gemini', model, outcome: 'running' })
   return track($, node, async (): Promise<ToolCallResult> => {
-    const out = await geminiRun($, { model, prompt, images, json: e.format === 'json' }).catch(err => ({ text: '', status: 'ERROR', error: String((err as Error)?.message ?? err).slice(0, 300) }) as Awaited<ReturnType<typeof geminiRun>>)
+    const out = await geminiRun($, { model, prompt, images, ids: imageIds, json: e.format === 'json' }).catch(err => ({ text: '', status: 'ERROR', error: String((err as Error)?.message ?? err).slice(0, 300) }) as Awaited<ReturnType<typeof geminiRun>>)
     const tokens = (out.inputTokens ?? 0) + (out.outputTokens ?? 0)
     if (out.outputTokens !== undefined) void update($, costs, c => ({ ...c, agy: { ...c.agy, [model]: addTokens(c.agy[model] ?? zero(), { input: out.inputTokens ?? 0, output: out.outputTokens ?? 0, cacheRead: 0, cacheWrite: 0 }) } }))
     void antigravityUsage($).then(() => watchQuota($)).catch(() => {})
@@ -1384,6 +1396,7 @@ export const register: Register = on => {
       agentId: got.agentId,
       ...(got.deny ? { state: 'failed' as const, endedAt } : {}),
     }))
+    if (got.agentId && !got.deny) await update($, agentSens, l => [...l.filter(x => x.agentId !== got.agentId), { agentId: got.agentId!, sensitivity: node.sensitivity, parent: e.parentAgentId, escalated: node.escalated }].slice(-AGENT_SENS_CAP))
     if ('item' in task) await logRoute($, { ...task.item, agentId: got.agentId, model: spawn.model ?? got.model ?? task.item.model, ...(got.deny ? { outcome: 'failed' as const, note: got.deny } : {}) })
     if (ran.deny) $.ui.toast(`✗ ${node.label}`)
     else {
@@ -1627,7 +1640,11 @@ export const register: Register = on => {
       const isCoding = e.tool === 'mcp__antigravity__gemini_bounded_task'
       const job = isCoding ? 'coding' : 'visual'
       if (!agyJobOn(r, job)) return refuse('antigravity', `has ${isCoding ? 'coding or text work' : 'visual checks'} disabled or out of quota`)
-      const cloud = await cloudOk($, { text: JSON.stringify(call), sensitivity: chain.sensitivity })
+      // Public material only, like gemini_run: a subagent's chain is at least internal (so refused); the main thread is public unless the call says otherwise.
+      const said = typeof (call as { sensitivity?: unknown }).sensitivity === 'string' ? (call as { sensitivity: string }).sensitivity : undefined
+      const callText = JSON.stringify(call)
+      const sensitivity = strictest([chain.sensitivity, said, /\bsensitivity:\s*client\b/i.test(callText) ? 'client' : undefined]) ?? 'public'
+      const cloud = await cloudOk($, { text: callText, sensitivity, publicOnly: true })
       if (!cloud.allowed) return { deny: `Antigravity refused: ${cloud.why}. Keep this in Claude or on Ollama (set by the owner in the agent panel's Models tab, CONFIDENTIAL card).` }
       const preferred = agyJobModel(r, job)
       const model = typeof e.model === 'string' && e.model ? e.model : preferred

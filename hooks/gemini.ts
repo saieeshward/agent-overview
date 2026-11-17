@@ -60,10 +60,17 @@ async function realpath($: $, path: string): Promise<string | undefined> {
 
 // Each image is resolved through its symlinks and must be a regular image file of a sane size, inside the session folder or
 // its git root, and not on a confidential path (the pattern check runs on the resolved path as well as the one given).
-export async function vetImages($: $, raw: unknown, cwd: string, blocked: (text: string) => string | undefined): Promise<{ paths: string[] } | { error: string }> {
+// device:inode of the file itself (a symlink is not followed), to tell the file that was vetted from one swapped in later.
+async function fileId($: $, path: string): Promise<string | undefined> {
+  const r = await $.process.run(['/usr/bin/stat', '-f', '%d:%i %HT', path], { timeoutMs: 5000 }).catch(() => undefined)
+  return r?.exitCode === 0 ? r.stdout.trim() : undefined
+}
+
+export async function vetImages($: $, raw: unknown, cwd: string, blocked: (text: string) => string | undefined): Promise<{ paths: string[]; ids?: (string | undefined)[] } | { error: string }> {
   if (raw === undefined) return { paths: [] }
   if (!Array.isArray(raw)) return { error: 'images must be a list of absolute file paths.' }
   if (!raw.length) return { paths: [] }
+  const ids: (string | undefined)[] = []
   if (raw.length > 8) return { error: 'at most 8 images.' }
   for (const given of raw) {
     if (typeof given !== 'string' || !given.startsWith('/')) return { error: `image paths must be absolute strings (got ${JSON.stringify(given)?.slice(0, 60)}).` }
@@ -88,11 +95,12 @@ export async function vetImages($: $, raw: unknown, cwd: string, blocked: (text:
     if (!st || st.kind !== 'file') return { error: `${path} is not a regular file.` }
     if (st.size > MAX_IMAGE_BYTES) return { error: `${path} is larger than ${MAX_IMAGE_BYTES / 1024 / 1024} MB.` }
     out.push(path)
+    ids.push(await fileId($, path))
   }
-  return { paths: out }
+  return { paths: out, ids }
 }
 
-export async function geminiRun($: $, input: { model: string; prompt: string; images?: string[]; json?: boolean }): Promise<GeminiOut> {
+export async function geminiRun($: $, input: { model: string; prompt: string; images?: string[]; ids?: (string | undefined)[]; json?: boolean }): Promise<GeminiOut> {
   const bin = await locate($, 'agy')
   if (!bin) return { text: '', status: 'ERROR', error: 'the Antigravity CLI (agy) is not installed' }
   const made = await $.process.run(['/usr/bin/mktemp', '-d', '/tmp/ao-gemini.XXXXXXXX'], { timeoutMs: 5000 })
@@ -102,6 +110,11 @@ export async function geminiRun($: $, input: { model: string; prompt: string; im
     const names: string[] = []
     for (const [i, path] of (input.images ?? []).entries()) {
       const name = safeName(path, i)
+      // Right before the copy the image is resolved again: it must still be the vetted real path, the same file (device and inode),
+      // and a regular file, or a link swapped in since the check would be copied.
+      const again = await realpath($, path)
+      const id = await fileId($, path)
+      if (again !== path || id === undefined || /Symbolic|Directory/i.test(id) || (input.ids && id !== input.ids[i])) return { text: '', status: 'ERROR', error: `the image ${path} changed after it was checked; nothing was sent` }
       // -P: a symlink is copied as itself, never followed (the paths were resolved and vetted before this).
       const cp = await $.process.run(['/bin/cp', '-P', '--', path, `${dir}/${name}`], { timeoutMs: 10000 })
       if (cp.exitCode !== 0) return { text: '', status: 'ERROR', error: `could not read image ${path}` }
