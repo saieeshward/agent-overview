@@ -11,7 +11,7 @@ import { registerChatLook } from './chat-look'
 import { officeRail } from './office-rail'
 import type { EngineInterface, Register, ToolCallResult } from 'claude-code'
 
-import type { Act, AgentNode, Costs, DecisionItem, Finding, Stage, Installed, Media, Mode, EditItem, GitInfo, GrillItem, History, HistoryItem, Impl, LiveEdit, MainInfo, ModelSpeeds, Prices, Provider, Providers, Routing, SideLive, TurnCost, Ui, Used, Written } from '../types'
+import type { Act, AgentNode, Lane, RouteLogItem, Sensitivity, Costs, DecisionItem, Finding, Stage, Installed, Media, Mode, EditItem, GitInfo, GrillItem, History, HistoryItem, Impl, LiveEdit, MainInfo, ModelSpeeds, Prices, Provider, Providers, Routing, SideLive, TurnCost, Ui, Used, Written } from '../types'
 import { antigravityUsage, claudeUsage, ensurePrices, loadPrices, ollamaGenerate, OLLAMA_DOWN, OLLAMA_LONG, plugins, refreshModels, refreshUsage, tokens, watchQuota } from './providers'
 import { addTokens, claudeTotal, elevenCredits, matchTurnCost, mediaReadOnly, mediaService, mediaShort, mediaText, money, outputTokens, parseAgyUsage, refreshMedia, rowCost, spendBy, zero } from './cost'
 import { allOf, agyJobModel, agyJobOn, agyModelNotice, OTHERS, PROVIDERS, blank, isEmbedder, offlineOf, loadRouting, pruneStore, defaultRouting, handoffText, livePicks, nameOf, normalGuard, normalRouting, planDeny, routingText, subagentRoute, withFlags, missingOf, without } from './state'
@@ -24,6 +24,8 @@ import { PANE, drawBand, drawPane, fit, tok } from './view'
 import { IMPACT, shortModel, tableOf } from './ui'
 import { mergeFinding, stageDeny, workText } from './work/stage'
 import { flushCheck, mark, markCount, readDebugLog, startCheck } from './hookcheck'
+import { FALLBACK, declarationText, defaultPolicy, isProblem, laneName, laneTool, lanesOpen, loadPolicy, logRoute, parseDeclaration, resolveRoute, settleRoute } from './policy'
+import type { Resolved } from './policy'
 
 // State lives here as well as beside the other hooks: the engine lists each file's reads and writes from its own consts.
 const nodes = atom({ plugin: 'agent-overview', key: 'nodes' } as const, [] as AgentNode[])
@@ -61,6 +63,7 @@ const deliveredPrompt = atom({ plugin: 'agent-overview', key: 'deliveredPrompt' 
 const stage = atom({ plugin: 'agent-overview', key: 'stage' } as const, null as Stage | null)
 const impl = atom({ plugin: 'agent-overview', key: 'impl' } as const, { agents: [] } as Impl)
 const findings = atom({ plugin: 'agent-overview', key: 'findings' } as const, [] as Finding[])
+const policy = atom({ plugin: 'agent-overview', key: 'policy' } as const, defaultPolicy())
 
 const GRILL_TOOL = 'mcp__agent-overview__grill_log'
 const QA_TOOL = 'mcp__agent-overview__qa_log'
@@ -369,9 +372,10 @@ async function currentPrompt($: EngineInterface) {
   const r = await read($, routing)
   const caps = await pastCaps($)
   const opts = { ...g, missing: missingOf(ps), down: offlineOf(ps), ollamaModels: (ps.ollama?.models ?? []).map(m => m.id), claudeModels: ps.claude?.models.filter(m => m.isDefault) }
+  const tasks = declarationText(await read($, policy), await openLanes($))
   return {
-    routing: routingText(r, {}, caps, opts, await read($, modelSpeeds)),
-    seen: routingText(r, {}, caps, opts),
+    routing: [routingText(r, {}, caps, opts, await read($, modelSpeeds)), tasks].filter(Boolean).join('\n'),
+    seen: [routingText(r, {}, caps, opts), tasks].filter(Boolean).join('\n'),
     work: workText((await read($, ui)).area, await read($, stage), g.work, await read($, impl)),
   }
 }
@@ -383,6 +387,36 @@ async function lastPrompt($: EngineInterface, sessionId: string): Promise<Delive
 async function rememberPrompt($: EngineInterface, value: DeliveredPrompt) {
   await update($, deliveredPrompt, () => value)
   if (value.sessionId) await $.store.set(`deliveredPrompt:${value.sessionId}`, value).catch(() => {})
+}
+
+// Which side lanes can take a task now (Claude only, off, not running, client material).
+async function openLanes($: EngineInterface, sensitivity?: Sensitivity) {
+  const ps = await read($, providers).then(allOf)
+  return lanesOpen(await read($, routing), { installed: ps.ollama.status !== 'missing', up: !ps.ollama.offline }, sensitivity)
+}
+
+// An Agent spawn's declared task, checked against the owner's table: where it runs, or why it may not.
+type TaskCheck = { exempt: true } | { deny: string; item: RouteLogItem } | { route?: Resolved; item: RouteLogItem; warn?: string }
+async function checkTask($: EngineInterface, e: { tool_use_id: string; description: string; fork?: boolean; resume?: unknown; workflow?: unknown; isTeammate?: boolean }): Promise<TaskCheck> {
+  if (e.fork || e.resume || e.workflow || e.isTeammate) return { exempt: true }
+  const p = await read($, policy)
+  const d = parseDeclaration(e.description)
+  const base = { at: await $.clock.now(), id: e.tool_use_id, tool: 'Agent', label: e.description.slice(0, 120) }
+  if (isProblem(d)) {
+    const item: RouteLogItem = { ...base, type: d.type, sensitivity: d.sensitivity, declared: d.problem, lane: 'claude', model: '', outcome: p.declare === 'block' ? 'denied' : p.declare === 'warn' ? 'warned' : 'running', note: d.fix }
+    if (p.declare === 'block') return { deny: `Routing guard: ${d.fix}`, item }
+    return { item, warn: p.declare === 'warn' ? `Routing guard: "${e.description.slice(0, 40)}" ${d.problem === 'missing' ? 'has no task declaration' : `declares ${d.type ?? '?'}/${d.sensitivity ?? '?'}, not on the table`}` : undefined }
+  }
+  let route = resolveRoute(p, d.type, await openLanes($, d.sensitivity))
+  const item: RouteLogItem = { ...base, type: d.type, sensitivity: d.sensitivity, declared: 'ok', lane: route.lane, model: route.model, effort: route.effort, outcome: 'running', note: route.moved ? `${laneName(route.declared.lane)} unavailable: ${route.moved}` : undefined }
+  // A task the table gives to a side lane is called directly there; a subagent for it is the wrong lane.
+  if (route.declared.lane !== 'claude' && !route.moved) {
+    const fix = `task:${d.type} runs on ${laneName(route.declared.lane)} (${route.declared.model}): call ${laneTool(route.declared.lane)} directly with the whole task and its input, not a subagent.`
+    if (p.declare === 'block') return { deny: `Routing guard: ${fix}`, item: { ...item, outcome: 'denied', note: fix } }
+    route = { ...FALLBACK[route.declared.lane as Exclude<Lane, 'claude'>], declared: route.declared, moved: 'spawned as a subagent' }
+    return { route, item: { ...item, lane: 'claude', model: route.model, effort: route.effort, note: fix }, warn: p.declare === 'warn' ? `Routing guard: ${fix}` : undefined }
+  }
+  return { route, item }
 }
 
 // Only the providers past their cap change the routing.
@@ -615,11 +649,16 @@ async function ollamaRun($: EngineInterface, e: Loose): Promise<ToolCallResult> 
     id: e.tool_use_id, state: 'running', steps: 0, startedAt: await $.clock.now(), parentId: e.agentId, parentNode: parentRow?.id, run: parentRow?.run ?? mainTurn,
     label: String(e.description ?? '') || labelOf(prompt) || 'Ollama run', kind: 'Ollama', model: pick.model, provider: 'ollama', input: clip(prompt, 20000),
   }
+  const d = parseDeclaration(String(e.description ?? ''))
+  const item: RouteLogItem = { at: node.startedAt!, id: e.tool_use_id, tool: 'ollama_run', label: node.label, declared: isProblem(d) ? 'exempt' : 'ok', type: isProblem(d) ? undefined : d.type, sensitivity: isProblem(d) ? undefined : d.sensitivity, lane: 'ollama', model: pick.model, outcome: 'running' }
+  await logRoute($, item)
   return track($, node, async (): Promise<ToolCallResult> => {
     try {
       const out = await ollamaGenerate($, pick.model, prompt, { system, long })
+      await settleRoute($, x => x.id === e.tool_use_id, { outcome: 'done', tokens: out.outputTokens, ms: out.ms })
       return { result: out.text || '(the model returned no text)' }
     } catch (err) {
+      await settleRoute($, x => x.id === e.tool_use_id, { outcome: 'failed', note: String((err as Error)?.message ?? err).slice(0, 200) })
       const msg = String((err as Error)?.message ?? err).slice(0, 300)
       // A refused connection means the server stopped: look again so routing says so.
       if (/fetch|connect|refused|no answer/i.test(msg)) void refreshUsage($, 'ollama').catch(() => {})
@@ -880,6 +919,7 @@ export const register: Register = on => {
     await update($, routing, () => normalRouting(saved))
     // A reload may bring new routing words: the cached routing section is composed again.
     $.ui.invalidate('prompt.section')
+    await loadPolicy($)
     const savedGuard = await $.store.get('guard').catch(() => undefined)
     await update($, guard, () => normalGuard(savedGuard))
     await restoreDecisions($)
@@ -1041,6 +1081,14 @@ export const register: Register = on => {
     const g = normalGuard(await read($, guard))
     if (!r0.on.claude) return { deny: 'Claude crew is off; use an enabled provider.' }
     if (r0.role === 'plan' && g.planSubagents === 'block') return { deny: planDeny(r0) }
+    const task = await checkTask($, e)
+    if ('deny' in task) {
+      await logRoute($, task.item)
+      $.ui.toast(`✗ ${task.deny.slice(0, 90)}`)
+      return { deny: task.deny }
+    }
+    const tableRoute = 'route' in task ? task.route : undefined
+    if ('warn' in task && task.warn) $.ui.toast(task.warn)
     const workflow = routingCalls.get(e.tool_use_id)?.workflow
     const workflowReason = e.workflow ? workflowReasons.get(e.tool_use_id) : undefined
     const selected = !e.fork && !e.resume ? babysitterModel(e.prompt, e.model, g.babysitterModel) : undefined
@@ -1092,7 +1140,7 @@ export const register: Register = on => {
     // "Claude plans only" they are told to hand the work itself to the side provider.
     const preferred = r0.models.claude[0]
     const handoff = route.handoff ?? (!e.fork && !e.resume ? handoffText(r0, await read($, modelSpeeds)) : undefined)
-    let spawn = selected ? { ...e, model: selected } : preferred && !e.model && !e.fork && !e.resume && r0.role !== 'plan' ? { ...e, model: preferred } : e
+    let spawn = selected ? { ...e, model: selected } : tableRoute ? { ...e, model: tableRoute.model } : preferred && !e.model && !e.fork && !e.resume && r0.role !== 'plan' ? { ...e, model: preferred } : e
     if (handoff) spawn = { ...spawn, prompt: `${handoff}\n\n${spawn.prompt}` }
     if (spawn.model) await setNode($, n => n.id === node.id, n => ({ ...n, model: spawn.model! }))
     let ran
@@ -1111,6 +1159,7 @@ export const register: Register = on => {
       agentId: got.agentId,
       ...(got.deny ? { state: 'failed' as const, endedAt } : {}),
     }))
+    if ('item' in task) await logRoute($, { ...task.item, agentId: got.agentId, model: spawn.model ?? got.model ?? task.item.model, ...(got.deny ? { outcome: 'failed' as const, note: got.deny } : {}) })
     if (ran.deny) $.ui.toast(`✗ ${node.label}`)
     else {
       if (selected && selected !== e.model) await logDecision($, { decision: `babysitter moved to ${selected}`, why: 'This subagent only runs and waits on a side provider.', impact: 'low', at: startedAt })
@@ -1148,6 +1197,8 @@ export const register: Register = on => {
       }))
     }
     if (e.agentId) {
+      const agentId = e.agentId
+      await settleRoute($, x => x.agentId === agentId, { outcome: e.reason === 'answer' ? 'done' : 'failed', ms: e.durationMs, tokens: usage ? usage.input_tokens + usage.output_tokens + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0) : undefined })
       if (usage) {
         if (turnStart) turnStart.children[usage.model] = (turnStart.children[usage.model] ?? 0) + usage.output_tokens
         await recordSpeed($, usage.model, usage.output_tokens, e.durationMs)
@@ -1314,6 +1365,16 @@ export const register: Register = on => {
       if (server !== 'agent-overview') void update($, used, u => ({ ...u, mcp: bump(u.mcp, server) }))
     }
 
+    // A declared Agent task runs at the effort the owner's table gives it.
+    let sent = call
+    if (e.tool === 'Agent' && e.subagent_type !== 'fork') {
+      const d = parseDeclaration(String(e.description ?? ''))
+      if (!isProblem(d)) {
+        const route = resolveRoute(await read($, policy), d.type, await openLanes($, d.sensitivity))
+        const effort = route.lane === 'claude' ? route.effort : FALLBACK[route.lane].effort
+        if (effort && effort !== e.effort) sent = { ...call, effort } as typeof call
+      }
+    }
     let ran
     const r = await read($, routing)
     const refuse = (p: Provider, why: string) => {
@@ -1380,10 +1441,18 @@ export const register: Register = on => {
         await watchQuota($)
         void refreshUsage($, ext.provider).then(() => watchQuota($)).catch(() => {})
       } else {
-        ran = await mediaCall($, e.tool, () => next(call))
+        ran = await mediaCall($, e.tool, () => next(sent))
       }
     }
 
+    if (e.tool === 'Agent') {
+      const result = ran.result as { status?: string; usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number }; totalDurationMs?: number } | undefined
+      const u = result?.usage
+      const tokens = u ? (u.input_tokens ?? 0) + (u.output_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) : undefined
+      // A background agent settles at its own turn.complete.
+      if (ran.deny || ran.isError) await settleRoute($, x => x.id === e.tool_use_id, { outcome: 'failed', note: String(ran.deny ?? ran.text ?? '').slice(0, 200) || undefined })
+      else if (result?.status === 'completed') await settleRoute($, x => x.id === e.tool_use_id, { outcome: 'done', tokens, ms: result.totalDurationMs })
+    }
     if (e.tool === 'Workflow') {
       const result = ran.result as { error?: unknown; status?: string } | undefined
       const failed = ran.deny || ran.isError || result?.error

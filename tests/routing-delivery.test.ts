@@ -41,11 +41,13 @@ test('Crew routing changes reach the next user turn, match the gate, and stop wh
     expect(store.presets.find((p: any) => p.name === 'Crew').routing.on.commandcode).toBe(on)
     const result = await submit()
     expect(result.text).toBe('continue')
-    expect(result.context).toEqual([`Delegation routing changed (overrides the earlier routing section):\n${routingText(state.routing, {}, [], state.guard)}`])
+    // The owner's routing, then the task-declaration lines the mod adds after it.
+    expect(result.context).toHaveLength(1)
+    expect(result.context![0]!.startsWith(`Delegation routing changed (overrides the earlier routing section):\n${routingText(state.routing, {}, [], state.guard)}\nTask declarations`)).toBe(true)
     expect(result.context![0]!.includes('Paused automatically')).toBe(false)
     const gate = await ($.tool as any).call({ tool: 'Bash', tool_use_id: `cc:${on}`, command: 'cmd -p "review"' })
     expect(!!gate.deny).toBe(!on)
-    expect(store['deliveredPrompt:delivery'].routing).toBe(routingText(state.routing, {}, [], state.guard))
+    expect(store['deliveredPrompt:delivery'].routing.startsWith(`${routingText(state.routing, {}, [], state.guard)}\nTask declarations`)).toBe(true)
     expect((await submit()).context).toBeUndefined()
   }
   await ui.unmount()

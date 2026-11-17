@@ -16,6 +16,7 @@ import { modeBusy } from './modes'
 import { chatSettings } from './chat-settings'
 import { chatBandExtras } from './chat-surfaces'
 import { hooksCard, switchNote } from './hookcheck'
+import { routeLogCard, taskRoutingCard } from './policy-view'
 import type { Stage, TreeRow } from './graph'
 import { allOf, agyQuotaLine, OTHERS, PROVIDERS, blank, colorOf, defaultRouting, livePicks, move, nameOf, normalGuard, providerOf, usageAge, tagOf, withPicks, withTag } from './state'
 
@@ -1956,6 +1957,7 @@ async function modelsTab($: $, E: E, w: number, rows: number) {
         </E.Box>
       ))}
       {await presetsCard($, E)}
+      {await taskRoutingCard($, E, w)}
       {optimizeControls($, E, r)}
       {adversaryControls($, E, r)}
       {Card(E, 'card:models', 'MODELS', paused ? 'inactive' : 'claude', (
@@ -1972,6 +1974,7 @@ async function modelsTab($: $, E: E, w: number, rows: number) {
         <E.Button key="useOrder" plain onPress={() => saveRouting($, x => ({ ...x, useOrder: x.useOrder === false }))}>{Chip(E, r.useOrder !== false ? 'In order: On' : 'In order: Off', r.useOrder !== false)}</E.Button>
       </E.Box> })}
       {await scoreCard($, E, w)}
+      {await routeLogCard($, E, w, now)}
     </E.Box>
   )
 }

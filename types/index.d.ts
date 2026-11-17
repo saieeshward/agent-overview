@@ -207,6 +207,20 @@ export type Guard = {
 export type Preset = { name: string; routing: Routing; builtIn?: boolean }
 // This session's record of which hooks ran (counts by event, with occasions such as 'turn.step:main'),
 // and the ones the debug log says a plugin above bypassed, by that plugin's name.
+// Task routing: every Agent spawn declares its task type and sensitivity; the owner's table picks the lane.
+export type TaskType = 'lookup' | 'summarise' | 'build' | 'design' | 'review' | 'visual' | 'private-extract'
+export type Sensitivity = 'client' | 'internal' | 'public'
+export type Lane = 'claude' | 'ollama' | 'gemini'
+export type TaskRoute = { lane: Lane; model: string; effort?: string }
+// declare: what the routing guard does with a spawn whose declaration is missing or off the table.
+// allow: projects whose (non-client) work may go to Antigravity; patterns: extra confidential path patterns.
+export type Policy = { table: Record<TaskType, TaskRoute>; declare: 'warn' | 'block' | 'off'; allow: string[]; patterns: string[] }
+export type RouteLogItem = {
+  at: number; id: string; agentId?: string; tool: string; label?: string
+  type?: string; sensitivity?: string; declared: 'ok' | 'missing' | 'off-table' | 'exempt'
+  lane: Lane; model: string; effort?: string; tokens?: number; ms?: number
+  outcome: 'running' | 'done' | 'failed' | 'denied' | 'warned' | 'escalated'; note?: string
+}
 export type HookCheck = { session: string; ran: Record<string, number>; bypassed: Record<string, string> }
 
 // What the owner set for delegated work; saved across sessions in $.store.
@@ -274,6 +288,8 @@ declare module 'claude-code' {
       chatSurface: ChatSurfaceState
       look: Look
       hookcheck: HookCheck
+      policy: Policy
+      routeLog: RouteLogItem[]
     }
   }
 }
