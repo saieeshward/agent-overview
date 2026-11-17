@@ -23,6 +23,7 @@ import { DEFAULT_PINS, MARKS, dropServerBlocks, filterListing, forcedText, offTe
 import { PANE, drawBand, drawPane, fit, tok } from './view'
 import { IMPACT, shortModel, tableOf } from './ui'
 import { mergeFinding, stageDeny, workText } from './work/stage'
+import { flushCheck, mark, markCount, readDebugLog, startCheck } from './hookcheck'
 
 // State lives here as well as beside the other hooks: the engine lists each file's reads and writes from its own consts.
 const nodes = atom({ plugin: 'agent-overview', key: 'nodes' } as const, [] as AgentNode[])
@@ -802,6 +803,7 @@ export const register: Register = on => {
   registerChatLook(on)
   registerChatSurfaces(on)
   on('session.start', async ($, e, next) => {
+    await startCheck($)
     // State outlives a reload: a provider added since (Ollama) needs its entry before anything reads it.
     await update($, providers, all => PROVIDERS.every(p => all[p.id]) ? all : { ...Object.fromEntries(PROVIDERS.map(p => [p.id, blank()])), ...all } as Providers)
     await $.command.register({ name: 'default', description: 'Open the Agent panel' })
@@ -921,6 +923,8 @@ export const register: Register = on => {
     void tokens($).then(() => loadPrices($))
     $.clock.every(120000, () => void tokens($).then(() => watchSpend($)))
     $.clock.every(1800000, () => void loadPrices($))
+    $.clock.every(300000, () => void readDebugLog($))
+    $.clock.every(30000, () => void flushCheck($))
     // The spinner turns only while something is running, so a quiet panel never redraws.
     $.clock.every(150, () => {
       if (ticking) return
@@ -942,12 +946,14 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: ['overview', 'default'] }, async $ => {
+    mark('command.run')
     await $.ui.open({ id: PANE, title: 'Agent panel', focus: true })
     return { text: 'Agent panel opened.' }
   })
 
   // The routing the owner set in the panel, told to the model on every request.
   on('prompt.compose', async ($, e, next) => {
+    mark('prompt.compose')
     const composed = await next(e)
     if (e.traits.includes('bare')) return composed
     const { routing: text, seen, work } = await currentPrompt($)
@@ -967,6 +973,7 @@ export const register: Register = on => {
   })
 
   on('prompt.submit', async ($, e, next) => {
+    mark('prompt.submit')
     if (e.isMeta || !(['composer', 'bridge', 'sdk', 'auto-continuation'].includes(e.origin.kind) || e.origin.kind === 'plugin' && (e.origin.asUser || e.origin.name === 'agent-overview'))) return next(e)
     const sessionId = await $.session.id(), previous = await lastPrompt($, sessionId), current = await currentPrompt($)
     const context: string[] = []
@@ -988,6 +995,7 @@ export const register: Register = on => {
   })
 
   on('skill.prompt', async ($, e, next) => {
+    mark('skill.prompt')
     const name = e.pluginName && !e.skill.includes(':') ? `${e.pluginName}:${e.skill}` : e.skill
     if (skillMode(await read($, toggles), name) === 'off') return { text: `The skill ${name} is turned OFF for this session by the owner. Tell the user and do not follow it.` }
     void update($, used, u => ({ ...u, skills: bump(u.skills, e.skill) }))
@@ -996,6 +1004,7 @@ export const register: Register = on => {
 
   // OFF hides from what the model reads: the skill listing, deferred tool names, a plugin's injected text.
   on('prompt.attachment', async ($, e, next) => {
+    mark('prompt.attachment')
     const r = await next(e)
     const a = e as unknown as { type: string; origin?: { kind?: string } }
     // Claude Code's own reminders say whether ultracode is on; the Models tab shows it.
@@ -1012,6 +1021,7 @@ export const register: Register = on => {
   })
 
   on('tool.describe', async ($, e, next) => {
+    mark('tool.describe')
     let r = await next(e)
     if ((e.tool === QA_TOOL || e.tool === GRILL_TOOL) && (await read($, ui)).area === 'vibe') return { ...r, description: 'QA logging is suppressed in Vibe mode. Do not call this tool.', isDeferred: true }
     if (e.tool === QA_TOOL && !(await read($, guard)).qaLog) r = { ...r, description: 'Use this only while grilling the owner: keep their answers to your grilling questions. Do not log other answers or instructions. question: what you asked. answer: their answer as one or two clear sentences. kind: answer.' }
@@ -1022,10 +1032,11 @@ export const register: Register = on => {
   })
 
   // A plugin turned off also stops its hooks' text reaching new sessions and subagents.
-  on('classic.SessionStart', async ($, e, next) => stripInjected($, await next(e)))
-  on('classic.SubagentStart', async ($, e, next) => stripInjected($, await next(e)))
+  on('classic.SessionStart', async ($, e, next) => (mark('classic.SessionStart'), stripInjected($, await next(e))))
+  on('classic.SubagentStart', async ($, e, next) => (mark('classic.SubagentStart'), stripInjected($, await next(e))))
 
   on('agent.spawn', async ($, e, next) => {
+    mark('agent.spawn')
     const r0 = await liveRouting($)
     const g = normalGuard(await read($, guard))
     if (!r0.on.claude) return { deny: 'Claude crew is off; use an enabled provider.' }
@@ -1110,6 +1121,7 @@ export const register: Register = on => {
 
   // The main chat is running too while Claude answers you.
   on('turn.start', async ($, e, next) => {
+    mark('turn.start', e.agentId ? 'turn.start:agent' : 'turn.start:main')
     refusedRoutes.delete(e.agentId ?? 'main')
     if (!e.agentId) {
       $.ui.invalidate('prompt.section')
@@ -1123,6 +1135,8 @@ export const register: Register = on => {
   })
 
   on('turn.complete', async ($, e, next) => {
+    mark('turn.complete')
+    if (!e.agentId) markCount('turn.complete:main')
     refusedRoutes.delete(e.agentId ?? 'main')
     const usage = e.usage
     if (usage) {
@@ -1177,6 +1191,7 @@ export const register: Register = on => {
   })
 
   on('turn.step', async function* ($, e, next) {
+    mark('turn.step', e.agentId ? 'turn.step:agent' : 'turn.step:main')
     const effort = e.effort === undefined ? undefined : String(e.effort)
     if (!e.agentId && `${e.model}/${effort}` !== lastMain) {
       lastMain = `${e.model}/${effort}`
@@ -1229,6 +1244,7 @@ export const register: Register = on => {
   on('tool.call', ($, call, next) => watchCall($, call as unknown as Loose, async () => {
     // One loose view of every tool's input: narrowing the full union here is too deep for tsc.
     const e = call as unknown as Loose
+    mark('tool.call')
     if (e.tool === 'Workflow') {
       const r = await liveRouting($)
       const g = normalGuard(await read($, guard))
@@ -1373,6 +1389,8 @@ export const register: Register = on => {
       const failed = ran.deny || ran.isError || result?.error
       if (failed || result?.status === 'remote_launched') await setNode($, n => n.id === `wf:${e.tool_use_id}`, n => ({ ...n, state: failed ? 'failed' : 'done', endedAt: base.startedAt }))
     }
+    // The skill.prompt hook was due once a Skill call went through.
+    if (e.tool === 'Skill' && !ran.deny && !ran.isError) mark('tool.call:Skill')
     if (e.agentId && /^(?:Edit|Write|MultiEdit|NotebookEdit)$/.test(e.tool) && !ran.deny && !ran.isError) await setNode($, n => n.agentId === e.agentId, n => ({ ...n, ownEdits: true }))
     if (e.tool === 'Edit' || e.tool === 'Write') {
       const removed = e.tool === 'Edit' ? lineList(String(e.old_string ?? '')) : []
@@ -1400,7 +1418,7 @@ export const register: Register = on => {
     return ran
   }))
 
-  on('ui.render', { component: 'Pane', requestId: 'agent-overview' }, ($, e) => drawPane($, e))
+  on('ui.render', { component: 'Pane', requestId: 'agent-overview' }, ($, e) => (mark('ui.render'), drawPane($, e)))
 
   // ---------- chat look: your prompts, Claude's replies and turn ends read differently from logs ----------
 

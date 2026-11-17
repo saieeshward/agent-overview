@@ -205,6 +205,9 @@ export type Guard = {
   vibe: { styles: VibeStyle[]; motion: Motion }
 }
 export type Preset = { name: string; routing: Routing; builtIn?: boolean }
+// This session's record of which hooks ran (counts by event, with occasions such as 'turn.step:main'),
+// and the ones the debug log says a plugin above bypassed, by that plugin's name.
+export type HookCheck = { session: string; ran: Record<string, number>; bypassed: Record<string, string> }
 
 // What the owner set for delegated work; saved across sessions in $.store.
 export type Routing = {
@@ -270,6 +273,7 @@ declare module 'claude-code' {
       vibe: VibeLog
       chatSurface: ChatSurfaceState
       look: Look
+      hookcheck: HookCheck
     }
   }
 }

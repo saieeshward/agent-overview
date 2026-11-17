@@ -15,6 +15,7 @@ import { presetsCard } from './presets'
 import { modeBusy } from './modes'
 import { chatSettings } from './chat-settings'
 import { chatBandExtras } from './chat-surfaces'
+import { hooksCard, switchNote } from './hookcheck'
 import type { Stage, TreeRow } from './graph'
 import { allOf, agyQuotaLine, OTHERS, PROVIDERS, blank, colorOf, defaultRouting, livePicks, move, nameOf, normalGuard, providerOf, usageAge, tagOf, withPicks, withTag } from './state'
 
@@ -1100,8 +1101,10 @@ async function switchesCard($: $, E: E, folded: Record<string, boolean>, w: numb
       </E.Box>
     )
   })
+  const note = await switchNote($)
   return Fold($, E, folded, 'switches', 'PLUGINS', 'remember', () => (
     <E.Box flexDirection="column">
+      {note ? <E.Text color="warning" wrap="wrap">{note}</E.Text> : null}
       {rows.length ? rows : <E.Text dimColor>no activity</E.Text>}
     </E.Box>
   ))
@@ -2279,7 +2282,8 @@ async function pluginsTab($: $, E: E, w: number) {
         ))
       : null,
   ].filter(Boolean)
-  return <E.Box flexDirection="column" gap={1}>{parts}</E.Box>
+  const note = await switchNote($)
+  return <E.Box flexDirection="column" gap={1}>{note ? <E.Box key="switch:note"><E.Text color="warning" wrap="wrap">{note}</E.Text></E.Box> : null}{parts}</E.Box>
 }
 
 // ---------- settings ----------
@@ -2338,6 +2342,7 @@ async function settingsTab($: $, E: E) {
       {settingRow($, E, g, 'ctxWarn', 'Context warning', 'Warn before context fills; Off hides all context warnings.', [{ label: 'Off', value: 0 }, { label: '70%', value: 70 }, { label: '80%', value: 80 }, { label: '90%', value: 90 }])}
     </E.Box>)}
     {await chatSettings($, E)}
+    {await hooksCard($, E)}
   </E.Box>
 }
 
