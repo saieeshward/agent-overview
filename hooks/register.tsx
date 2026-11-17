@@ -23,6 +23,8 @@ import { DEFAULT_PINS, MARKS, dropServerBlocks, filterListing, forcedText, offTe
 import { PANE, drawBand, drawPane, fit, tok } from './view'
 import { IMPACT, shortModel, tableOf } from './ui'
 import { mergeFinding, stageDeny, workText } from './work/stage'
+import { geminiRun } from './gemini'
+import { GEMINI_MODELS } from './policy'
 import { flushCheck, mark, markCount, readDebugLog, startCheck } from './hookcheck'
 import { FALLBACK, cloudCheck, declarationText, defaultPolicy, isProblem, neverCommitPatterns, laneName, laneTool, lanesOpen, loadPolicy, logRoute, parseDeclaration, resolveRoute, settleRoute } from './policy'
 import type { Resolved } from './policy'
@@ -71,6 +73,7 @@ const QA_TOOL = 'mcp__agent-overview__qa_log'
 const DECISION_TOOL = 'mcp__agent-overview__decision_log'
 const REVIEW_TOOL = 'mcp__agent-overview__review_log'
 const OLLAMA_TOOL = 'mcp__agent-overview__ollama_run'
+const GEMINI_TOOL = 'mcp__agent-overview__gemini_run'
 
 export { providerOf as family } from './state'
 
@@ -697,6 +700,46 @@ async function ollamaRun($: EngineInterface, e: Loose): Promise<ToolCallResult> 
 }
 
 const AGY_RUN = /(?:^|[;&|(]\s*|\s)(?:\S*\/)?agy\s+(?:[^;&|]*\s)?(?:-p|--print|--prompt|-i|--prompt-interactive)(?:[\s=]|$)/
+// A Gemini answer through `agy -p`, run by the mod itself: tracked like a side run, its tokens and speed kept.
+async function geminiTool($: EngineInterface, e: Loose): Promise<ToolCallResult> {
+  const r = await read($, routing)
+  const panel = "(set by the owner in the agent panel's Models tab)"
+  const prompt = typeof e.prompt === 'string' ? e.prompt : ''
+  const images = Array.isArray(e.images) ? e.images.filter((x): x is string => typeof x === 'string' && x.startsWith('/')).slice(0, 8) : []
+  const job = images.length || !r.agyCoding ? 'visual' as const : 'coding' as const
+  if (r.role === 'claude') return { deny: `Antigravity is paused: Claude only ${panel}. Do this in Claude.` }
+  if (!r.on.antigravity) return { deny: `Antigravity is turned off ${panel}. Do this in Claude.` }
+  if (!agyJobOn(r, job)) return { deny: `Antigravity has ${job === 'visual' ? 'visual checks' : 'coding and text work'} off or out of quota ${panel}. Do this in Claude.` }
+  if (!prompt.trim()) return { deny: 'prompt is empty: put the whole task and its input in prompt.' }
+  const sensitivity = typeof e.sensitivity === 'string' ? e.sensitivity : undefined
+  const cloud = await cloudOk($, { sensitivity, text: [prompt, ...images].join('\n') })
+  if (!cloud.allowed) return { deny: `Antigravity refused: ${cloud.why}. Do this in Claude, or on Ollama (ollama_run) for private text.` }
+  const p = await read($, policy)
+  const model = typeof e.model === 'string' && GEMINI_MODELS.includes(e.model) ? e.model : p.table.visual.lane === 'gemini' ? p.table.visual.model : agyJobModel(r, job)
+  const parentRow = e.agentId ? (await read($, nodes)).find(n => n.agentId === e.agentId) : undefined
+  const startedAt = await $.clock.now()
+  const node: AgentNode = {
+    id: e.tool_use_id, state: 'running', steps: 0, startedAt, parentId: e.agentId, parentNode: parentRow?.id, run: parentRow?.run ?? mainTurn,
+    label: String(e.description ?? '') || labelOf(prompt) || 'Gemini run', kind: 'Antigravity', model, provider: 'antigravity', input: clip(prompt, 20000),
+  }
+  const d = parseDeclaration(String(e.description ?? ''))
+  await logRoute($, { at: startedAt, id: e.tool_use_id, tool: 'gemini_run', label: node.label, declared: isProblem(d) ? 'exempt' : 'ok', type: isProblem(d) ? (images.length ? 'visual' : undefined) : d.type, sensitivity, lane: 'gemini', model, outcome: 'running' })
+  return track($, node, async (): Promise<ToolCallResult> => {
+    const out = await geminiRun($, { model, prompt, images, json: e.format === 'json' }).catch(err => ({ text: '', status: 'ERROR', error: String((err as Error)?.message ?? err).slice(0, 300) }) as Awaited<ReturnType<typeof geminiRun>>)
+    const tokens = (out.inputTokens ?? 0) + (out.outputTokens ?? 0)
+    if (out.outputTokens !== undefined) void update($, costs, c => ({ ...c, agy: { ...c.agy, [model]: addTokens(c.agy[model] ?? zero(), { input: out.inputTokens ?? 0, output: out.outputTokens ?? 0, cacheRead: 0, cacheWrite: 0 }) } }))
+    void antigravityUsage($).then(() => watchQuota($)).catch(() => {})
+    if (out.status !== 'SUCCESS') {
+      const quota = QUOTA_TEXT.test(out.error ?? '')
+      if (quota) await update($, providers, all => ({ ...all, antigravity: { ...all.antigravity, alert: 'quota hit · its run said so' } }))
+      await settleRoute($, x => x.id === e.tool_use_id, { outcome: 'failed', tokens, ms: out.ms, note: out.error })
+      return { deny: `Gemini run on ${model} failed: ${out.error ?? out.status}${quota ? ' (out of quota)' : ''}` }
+    }
+    await settleRoute($, x => x.id === e.tool_use_id, { outcome: 'done', tokens, ms: out.ms })
+    return { result: out.text || '(the model returned no text)' }
+  })
+}
+
 type Loose = { tool: string; tool_use_id: string; agentId?: string; [arg: string]: unknown }
 
 let seq = 0
@@ -939,6 +982,28 @@ export const register: Register = on => {
           description: { type: 'string', description: 'A few words for the agent panel' },
         },
         required: ['prompt'],
+      },
+    })
+    await $.tool.register({
+      name: 'gemini_run',
+      isDeferred: false,
+      description:
+        'Run one prompt on Gemini through the Antigravity CLI (agy -p, plan mode, sandboxed, from an empty temp folder) and get its text back. ' +
+        'For visual checks (pass images: what text, logos or defects an image shows) and small public or internal text jobs. ' +
+        'It has no tools and sees only the prompt and the images you pass, so put everything it needs in prompt. ' +
+        'Never for client material: sensitivity "client" and confidential paths are refused, as is any project not on the owner\'s Antigravity allowlist. ' +
+        'Works only while the owner has Antigravity on in the agent panel.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          prompt: { type: 'string', description: 'The whole task, with any text it needs pasted in' },
+          sensitivity: { type: 'string', enum: ['public', 'internal', 'client'], description: 'client is always refused' },
+          images: { type: 'array', items: { type: 'string' }, description: 'Absolute paths of images to look at (copied into the temp folder)' },
+          model: { type: 'string', enum: GEMINI_MODELS, description: "Left out, the owner's visual model" },
+          format: { type: 'string', enum: ['json'], description: 'json when the answer must be valid JSON' },
+          description: { type: 'string', description: 'A few words for the agent panel' },
+        },
+        required: ['prompt', 'sensitivity'],
       },
     })
     void $.session.model().then(model => update($, main, m => ({ ...m, model })))
@@ -1366,6 +1431,7 @@ export const register: Register = on => {
       return { result: 'noted' }
     }
     if (e.tool === OLLAMA_TOOL) return ollamaRun($, e)
+    if (e.tool === GEMINI_TOOL) return geminiTool($, e)
     if (e.tool === QA_TOOL || e.tool === GRILL_TOOL) {
       if ((await read($, ui)).area === 'vibe') return { result: 'QA logging suppressed in Vibe mode' }
       const item: GrillItem = { question: String(e.question ?? ''), answer: String(e.answer ?? ''), kind: e.kind === 'instruction' ? 'instruction' : 'answer', at: await $.clock.now() }
