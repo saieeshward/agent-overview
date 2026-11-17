@@ -37,6 +37,10 @@ export async function reviewTab($: $, E: E, w: number, rows: number) {
     return Card(E, 'work:review', 'SHIP', 'success', <E.Box flexDirection="column" gap={1}>
       <E.Text color={committed ? 'success' : 'warning'}>{committed ? `${pushed ? 'Pushed' : 'Committed'} · ${hash.slice(0, 7)}` : 'Commit pending'}</E.Text>
       {pr ? <E.Link href={pr} label="Pull request" /> : null}
+      {pushed || pr ? <E.Box flexDirection="row" gap={1} flexWrap="wrap">
+        <E.Text dimColor>Shipped: tidy up worktrees?</E.Text>
+        <E.Button key="ship:clean" plain onPress={() => $.command.run({ command: 'clean-worktrees', args: '' })}>{Chip(E, 'List worktrees', false)}</E.Button>
+      </E.Box> : null}
       {committed ? <E.Box flexDirection="row" flexWrap="wrap" gap={1}>
         <E.Button key="ship:push" plain onPress={() => submitPrompt($, pushPrompt())}>{Chip(E, 'Push', false)}</E.Button>
         <E.Button key="ship:pr" plain onPress={() => submitPrompt($, prPrompt())}>{Chip(E, 'Open PR', false)}</E.Button>

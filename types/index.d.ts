@@ -229,6 +229,9 @@ export type AdversarialRun = {
   base: string; goal: string; model: string; round: number; rounds: number; estimate?: number
   diffChars: number; files: number; agentId?: string; fixTurn?: string; found: number; note?: string; at: number
 }
+// /clean-worktrees: the numbered list the owner picks from (numbers hold while the list is fresh).
+export type WorktreeRow = { n: number; path: string; branch?: string; head: string; verdict: 'SAFE' | 'PUSH-FIRST' | 'WIP' | 'OPEN-PR'; why: string; dirty: number; unpushed: number; last: number }
+export type WorktreeList = { repo: string; at: number; rows: WorktreeRow[] }
 export type HookCheck = { session: string; ran: Record<string, number>; bypassed: Record<string, string> }
 
 // What the owner set for delegated work; saved across sessions in $.store.
@@ -300,6 +303,7 @@ declare module 'claude-code' {
       routeLog: RouteLogItem[]
       confidential: Confidential
       adversarial: AdversarialRun
+      worktrees: WorktreeList
     }
   }
 }

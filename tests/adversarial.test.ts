@@ -66,7 +66,7 @@ test('/review-adversarial shows the cost first, runs only on go, fixes between r
   const spawned: any[] = []
   on('agent.spawn', (_$: any, e: any) => { spawned.push(e); return { model: e.model, agentId: `rev${spawned.length}` } })
   // Reviewers are found by id, or by their round's description when a spawn did not hand the id back.
-  on('agent.list', () => ({ value: spawned.map((x, i) => ({ id: `rev${i + 1}`, description: x.description, status: 'completed' })) }))
+  on('agent.list', () => ({ value: spawned.map((x, i) => ({ id: `rev${i + 1}`, description: x.description, status: 'completed' })) as any }))
   on('turn.complete', (_$: any, e: any) => ({ text: e.answer }))
   on('turn.start', (_$: any, e: any) => ({ turnId: e.turnId }))
   const submitted: string[] = []

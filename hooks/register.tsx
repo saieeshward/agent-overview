@@ -24,6 +24,7 @@ import { PANE, drawBand, drawPane, fit, tok } from './view'
 import { IMPACT, shortModel, tableOf } from './ui'
 import { mergeFinding, stageDeny, workText } from './work/stage'
 import { geminiRun } from './gemini'
+import { cleanPicked, listWorktrees, listingText, parsePicks } from './worktrees'
 import { ADVERSARY, ADVERSARY_MODEL, ADVERSARY_PROMPT, cancel as cancelReview, mainTurnEnded, mainTurnStarted, noteReviewer, parseArgs, prepare as prepareReview, reviewerDone, startRound, statusText } from './adversarial'
 import { escalation, failure, isEscalated } from './escalate'
 import type { Format } from './escalate'
@@ -946,6 +947,7 @@ export const register: Register = on => {
     await update($, providers, all => PROVIDERS.every(p => all[p.id]) ? all : { ...Object.fromEntries(PROVIDERS.map(p => [p.id, blank()])), ...all } as Providers)
     await $.command.register({ name: 'default', description: 'Open the Agent panel' })
     await $.command.register({ name: 'overview', description: 'Open the Agent panel (alias)' })
+    await $.command.register({ name: 'clean-worktrees', description: "List this repo's worktrees with a verdict each; /clean-worktrees <n...> backs up and removes only those" })
     await $.command.register({ name: 'review-adversarial', description: 'Adversarial review of the diff by Claude Opus 5.5, on request: [base] [goal] shows the cost, then go | cancel | status' })
     // The reviewer is spawned only by the command: the model never sees it as an agent type.
     await $.agent.register({ name: 'adversary', description: 'Adversarial reviewer; started only by /review-adversarial', prompt: ADVERSARY_PROMPT, model: ADVERSARY_MODEL, effort: 'high', tools: ['Read', 'Grep', 'Glob'] }).catch(() => undefined)
@@ -1131,6 +1133,15 @@ export const register: Register = on => {
   })
 
   on('agent.offer', { agent: ADVERSARY }, () => ({ isOffered: false }))
+
+  on('command.run', { command: 'clean-worktrees' }, async ($, e) => {
+    mark('command.run')
+    const picks = parsePicks(e.args)
+    if (picks && !picks.length) return { text: 'Name worktrees by their numbers from /clean-worktrees, e.g. /clean-worktrees 2 5.' }
+    if (picks) return { text: await cleanPicked($, picks) }
+    const l = await listWorktrees($)
+    return { text: 'error' in l ? `No worktrees to list: ${l.error}.` : listingText(l) }
+  })
 
   on('command.run', { command: 'review-adversarial' }, async ($, e) => {
     mark('command.run')
