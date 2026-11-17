@@ -63,14 +63,16 @@ test('every way into Antigravity is gated: its MCP tools and Bash agy -p; client
 
   state.policy = { ...defaultPolicy(), allow: [P] }
   expect((await visual('v2', 'Check the logo in shot.png')).deny).toBeUndefined()
-  expect((await bash('b2', "cd /tmp/x && agy -p='Check this' --sandbox")).deny).toBeUndefined()
+  // The CLI never runs from Bash, allowlisted or not: gemini_run is the way in.
+  expect((await bash('b2', "cd /tmp/x && agy -p='Check this' --sandbox")).deny).toContain('not run from Bash')
   expect((await visual('v3', 'Check client_briefs/acme/board.png')).deny).toContain('client_briefs/')
   expect((await visual('v4', 'Check exports/clients/a.png')).deny).toContain('exports/clients/')
   expect((await visual('v5', 'task:visual sensitivity:client Check the board')).deny).toContain('client material')
   expect((await bash('b3', 'agy -p "summarise runs/metrics/today.json"')).deny).toContain('runs/metrics/')
-  // Other agy commands and other tools are untouched.
-  expect((await bash('b4', 'agy models')).deny).toBeUndefined()
-  expect(ran).toEqual(['v2', 'b2', 'b4'])
+  // Any subcommand is refused; other commands are untouched.
+  expect((await bash('b4', 'agy models')).deny).toContain('not run from Bash')
+  expect((await bash('b6', 'ls /tmp')).deny).toBeUndefined()
+  expect(ran).toEqual(['v2', 'b6'])
 
   state.routing = { ...state.routing, role: 'claude' }
   expect((await bash('b5', "agy -p 'hi'")).deny).toContain('Claude only')

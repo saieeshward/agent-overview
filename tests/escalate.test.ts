@@ -91,15 +91,15 @@ test('gemini_run escalates an empty answer or a plan file to Sonnet', async ($, 
   on('ui.invalidate', () => ({ value: undefined }))
   on('session.id', () => ({ value: 'gesc' }))
   on('session.cwd', () => ({ value: P }))
-  on('fs.stat', (_$: any, e: any) => { if (e.path.endsWith('/.local/bin/agy')) return { value: { kind: 'file', size: 1, mtimeMs: 0, isLink: false } }; throw new Error('ENOENT') })
+  on('fs.stat', (_$: any, e: any) => { if (e.path.endsWith('/.local/bin/agy') || e.path === `${P}/sign.png`) return { value: { kind: 'file', size: 1, mtimeMs: 0, isLink: false } }; throw new Error('ENOENT') })
   let response = ''
   on('process.run', (_$: any, e: any) => {
-    const out = e.argv[0] === '/usr/bin/mktemp' ? '/tmp/ao-gemini.Qq11Ww22\n' : e.argv.includes('--sandbox') ? JSON.stringify({ status: 'SUCCESS', response, usage: { input_tokens: 10, output_tokens: 0 } }) : ''
+    const out = e.argv[0] === '/usr/bin/mktemp' ? '/tmp/ao-gemini.Qq11Ww22\n' : e.argv[0] === '/usr/bin/readlink' ? `${e.argv.at(-1)}\n` : e.argv[0] === 'git' ? `${P}\n` : e.argv.includes('--sandbox') ? JSON.stringify({ status: 'SUCCESS', response, usage: { input_tokens: 10, output_tokens: 0 } }) : ''
     return { value: { stdout: out, stderr: '', exitCode: 0, isStdoutTruncated: false, isStderrTruncated: false } }
   })
   const state: Record<string, any> = { routing: defaultRouting(), policy: { ...defaultPolicy(), allow: [P] }, routeLog: [] as RouteLogItem[], confidential: { cwd: P, found: [], sources: [] } }
   held(on, state)
-  const call = (id: string, extra: object = {}) => ($.tool as any).call({ tool: 'mcp__agent-overview__gemini_run', tool_use_id: id, prompt: 'What does the sign say?', sensitivity: 'public', images: ['/a/sign.png'], ...extra })
+  const call = (id: string, extra: object = {}) => ($.tool as any).call({ tool: 'mcp__agent-overview__gemini_run', tool_use_id: id, prompt: 'What does the sign say?', sensitivity: 'public', images: [`${P}/sign.png`], ...extra })
   const empty = await call('g1')
   expect(empty.result).toContain('ESCALATED')
   expect(empty.result).toContain('model "sonnet"')

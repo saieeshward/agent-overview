@@ -10,8 +10,9 @@ const OK = (response: string) => `Note: something first\n${JSON.stringify({ conv
 
 test('the CLI call: plan mode, sandbox, time limit and JSON output, from the temp folder only', () => {
   expect(geminiArgv('/bin/agy', 'gemini-3.8-flash-medium', 'hi')).toEqual(['/bin/agy', '--model', 'gemini-3.8-flash-medium', '--sandbox', '--mode', 'plan', '--print-timeout', '240s', '--output-format', 'json', '-p', 'hi'])
-  const prompt = geminiPrompt('List the logos.', TMP, ['1-shot.png'], true)
-  expect(prompt).toContain(`Open the image ${TMP}/1-shot.png with your file viewing tool (do not run any shell command)`)
+  const prompt = geminiPrompt('List the logos.', ['1-shot.png'], true)
+  expect(prompt).toContain('Open the image 1-shot.png in the current folder with your file viewing tool (do not run any shell command)')
+  expect(prompt).not.toContain(TMP)
   expect(prompt).toContain('Reply with JSON only')
   expect(prompt).toContain('Do not write files, plans or artifacts.')
   expect(isGeminiTemp(TMP)).toBe(true)
@@ -27,7 +28,7 @@ test('the answer is read after any notice line; failures keep the reason', () =>
 
 test('the routing text points visual checks at gemini_run and keeps client material off it', () => {
   const text = routingText(defaultRouting())
-  expect(text).toContain('call gemini_run (mcp__agent-overview__gemini_run) directly, no subagent; never with client material')
+  expect(text).toContain('call gemini_run (mcp__agent-overview__gemini_run) directly, no subagent; public material only, never internal or client material')
   expect(routingText({ ...defaultRouting(), role: 'claude' })).not.toContain('gemini_run')
 })
 
@@ -43,13 +44,13 @@ test('gemini_run runs agy in a fresh temp folder with copied images, deletes it,
   on('ui.toast', () => ({ value: undefined }))
   on('session.id', () => ({ value: 'gem' }))
   on('session.cwd', () => ({ value: P }))
-  on('fs.stat', (_$: any, e: any) => { if (e.path.endsWith('/.local/bin/agy')) return { value: { kind: 'file', size: 1, mtimeMs: 0, isLink: false } }; throw new Error('ENOENT') })
+  on('fs.stat', (_$: any, e: any) => { if (e.path.endsWith('/.local/bin/agy') || /\.(?:jpg|png)$/.test(e.path)) return { value: { kind: 'file', size: 1, mtimeMs: 0, isLink: false } }; throw new Error('ENOENT') })
   const runs: { argv: string[]; cwd?: string }[] = []
   let answer = OK('- "Restaurant" on the window')
   on('process.run', (_$: any, e: any) => {
     runs.push({ argv: [...e.argv], cwd: e.init?.cwd })
     const [bin] = e.argv
-    const out = bin === '/usr/bin/mktemp' ? `${TMP}\n` : String(bin).endsWith('/agy') && e.argv.includes('--sandbox') ? answer : ''
+    const out = bin === '/usr/bin/mktemp' ? `${TMP}\n` : bin === '/usr/bin/readlink' ? `${e.argv.at(-1)}\n` : bin === 'git' ? `${P}\n` : String(bin).endsWith('/agy') && e.argv.includes('--sandbox') ? answer : ''
     return { value: { stdout: out, stderr: '', exitCode: 0, isStdoutTruncated: false, isStderrTruncated: false } }
   })
   const state: Record<string, any> = { routing: defaultRouting(), policy: { ...defaultPolicy(), allow: [P] } as Policy, routeLog: [] as RouteLogItem[], confidential: { cwd: P, found: [], sources: [] } }
@@ -62,8 +63,9 @@ test('gemini_run runs agy in a fresh temp folder with copied images, deletes it,
   const agy = runs.find(x => x.argv.includes('--sandbox'))!
   expect(agy.cwd).toBe(TMP)
   expect(agy.argv.slice(1, 10)).toEqual(['--model', 'gemini-3.8-flash-medium', '--sandbox', '--mode', 'plan', '--print-timeout', '240s', '--output-format', 'json'])
-  expect(agy.argv.at(-1)).toContain(`${TMP}/1-front_door.jpg`)
-  expect(runs.find(x => x.argv[0] === '/bin/cp')!.argv).toEqual(['/bin/cp', '--', '/Users/sai/site/shots/front door.jpg', `${TMP}/1-front_door.jpg`])
+  expect(agy.argv.at(-1)).toContain('Open the image 1-front_door.jpg in the current folder')
+  expect(agy.argv.at(-1)).not.toContain(TMP)
+  expect(runs.find(x => x.argv[0] === '/bin/cp')!.argv).toEqual(['/bin/cp', '-P', '--', '/Users/sai/site/shots/front door.jpg', `${TMP}/1-front_door.jpg`])
   expect(runs.find(x => x.argv[0] === '/bin/rm')!.argv).toEqual(['/bin/rm', '-rf', '--', TMP])
   expect(state.routeLog.at(-1)).toMatchObject({ tool: 'gemini_run', lane: 'gemini', model: 'gemini-3.8-flash-medium', sensitivity: 'public', outcome: 'done', tokens: 11040, ms: 4500, type: 'visual' })
 
@@ -73,8 +75,10 @@ test('gemini_run runs agy in a fresh temp folder with copied images, deletes it,
   state.policy = defaultPolicy()
   expect((await call({ prompt: 'x' })).deny).toContain('allowlist')
   state.policy = { ...defaultPolicy(), allow: [P] }
+  // This lane takes public material only.
+  expect((await call({ prompt: 'x', sensitivity: 'internal' })).deny).toContain('public material only')
   state.routing = { ...defaultRouting(), agyVisual: false }
-  expect((await call({ prompt: 'x', images: ['/a.png'] })).deny).toContain('visual checks off')
+  expect((await call({ prompt: 'x', images: ['/Users/sai/site/a.png'] })).deny).toContain('visual checks off')
   state.routing = { ...defaultRouting(), on: { ...defaultRouting().on, antigravity: false } }
   expect((await call({ prompt: 'x' })).deny).toContain('turned off')
   state.routing = { ...defaultRouting(), role: 'claude' }

@@ -26,7 +26,8 @@ test('the table defaults come from the evals, old saves fill in, and bad entries
   const t = defaultTable()
   expect(t.summarise).toEqual({ lane: 'ollama', model: 'qwen3.5:9b' })
   expect(t['private-extract'].lane).toBe('ollama')
-  expect(t.visual).toEqual({ lane: 'gemini', model: 'gemini-3.8-flash-medium' })
+  // Ollama passed the visual eval 2/2, faster and local: it is the default; public images go to Gemini (see resolveRoute).
+  expect(t.visual).toEqual({ lane: 'ollama', model: 'qwen3.5:9b' })
   expect(t.lookup).toEqual({ lane: 'claude', model: 'claude-haiku-5-5', effort: 'low' })
   expect(t.design).toEqual({ lane: 'claude', model: 'claude-opus-5-5', effort: 'high' })
   expect(Object.keys(t).sort()).toEqual([...TASK_TYPES].sort())
@@ -47,13 +48,20 @@ test('side lanes close in Claude only, when off or down, and the cloud lane alwa
   expect(lanesOpen(r, { installed: true, up: false }).why.ollama).toBe('Ollama is not running')
   expect(lanesOpen(r, up, 'client')).toMatchObject({ ollama: true, gemini: false })
   expect(lanesOpen(r, up, 'client').why.gemini).toContain('client')
-  expect(lanesOpen(r, up, 'internal', { allowed: false, why: 'project not on the allowlist' }).why.gemini).toBe('project not on the allowlist')
+  expect(lanesOpen(r, up, 'internal').why.gemini).toBe('Gemini takes public material only')
+  expect(lanesOpen(r, up, 'public', { allowed: false, why: 'project not on the allowlist' }).why.gemini).toBe('project not on the allowlist')
 
   const p = defaultPolicy()
   expect(resolveRoute(p, 'summarise', lanesOpen(r, up))).toMatchObject({ lane: 'ollama', model: 'qwen3.5:9b' })
   // Claude only keeps task routing within Claude: the side lanes' work goes to the fallbacks.
   expect(resolveRoute(p, 'summarise', only)).toMatchObject({ ...FALLBACK.ollama, moved: 'Claude only' })
-  expect(resolveRoute(p, 'visual', lanesOpen(r, up, 'client'))).toMatchObject({ ...FALLBACK.gemini })
+  // Client and internal images stay on Ollama; only public ones go to Gemini.
+  expect(resolveRoute(p, 'visual', lanesOpen(r, up, 'client'), 'client')).toMatchObject({ lane: 'ollama', model: 'qwen3.5:9b' })
+  expect(resolveRoute(p, 'visual', lanesOpen(r, up, 'internal'), 'internal')).toMatchObject({ lane: 'ollama' })
+  expect(resolveRoute(p, 'visual', lanesOpen(r, up, 'public'), 'public')).toMatchObject({ lane: 'gemini', model: 'gemini-3.8-flash-medium' })
+  expect(resolveRoute(p, 'visual', lanesOpen({ ...r, role: 'claude' }, up, 'public'), 'public')).toMatchObject({ ...FALLBACK.ollama })
+  // An owner's own visual row is never overridden.
+  expect(resolveRoute({ ...p, table: { ...p.table, visual: { lane: 'ollama', model: 'llava:7b' } } }, 'visual', lanesOpen(r, up, 'public'), 'public')).toMatchObject({ lane: 'ollama', model: 'llava:7b' })
   expect(resolveRoute(p, 'build', only)).toMatchObject({ lane: 'claude', model: 'claude-sonnet-5-5', effort: 'medium' })
 })
 

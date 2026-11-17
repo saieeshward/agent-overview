@@ -27,7 +27,8 @@ export const defaultTable = (): Record<TaskType, TaskRoute> => ({
   build: { lane: 'claude', model: 'claude-sonnet-5-5', effort: 'medium' },
   design: { lane: 'claude', model: 'claude-opus-5-5', effort: 'high' },
   review: { lane: 'claude', model: 'claude-sonnet-5-5', effort: 'high' },
-  visual: { lane: 'gemini', model: GEMINI_DEFAULT },
+  // Ollama passed the visual eval 2/2, faster and on this Mac; Gemini takes the public ones (see resolveRoute).
+  visual: { lane: 'ollama', model: OLLAMA_DEFAULT },
   'private-extract': { lane: 'ollama', model: OLLAMA_DEFAULT },
 })
 
@@ -103,6 +104,7 @@ export function lanesOpen(r: Routing, ollama: { installed: boolean; up: boolean 
   if (r.role === 'claude') why.ollama = why.gemini = 'Claude only'
   if (!why.ollama) why.ollama = !r.on.ollama ? 'Ollama is off' : !ollama.installed ? 'Ollama is not installed' : !ollama.up ? 'Ollama is not running' : undefined
   if (!why.gemini) why.gemini = sensitivity === 'client' ? 'client material never goes to a cloud lane'
+    : sensitivity === 'internal' ? 'Gemini takes public material only'
     : !r.on.antigravity ? 'Antigravity is off'
       : !(agyJobOn(r, 'visual') || agyJobOn(r, 'coding')) ? 'Antigravity has no job on or is out of quota'
         : cloud && !cloud.allowed ? cloud.why ?? 'not allowed for this project' : undefined
@@ -113,8 +115,11 @@ export function lanesOpen(r: Routing, ollama: { installed: boolean; up: boolean 
 export type Resolved = TaskRoute & { declared: TaskRoute; moved?: string }
 
 // The table's route for a type, moved to Claude when its side lane cannot take the task.
-export function resolveRoute(p: Policy, type: TaskType, open: Lanes): Resolved {
-  const declared = p.table[type]
+export const isDefaultVisual = (x: TaskRoute) => x.lane === 'ollama' && x.model === OLLAMA_DEFAULT
+export function resolveRoute(p: Policy, type: TaskType, open: Lanes, sensitivity?: Sensitivity): Resolved {
+  let declared = p.table[type]
+  // Public images go to Gemini while the visual row is still the default; client and internal ones stay on Ollama.
+  if (type === 'visual' && sensitivity === 'public' && isDefaultVisual(declared) && open.gemini) declared = { lane: 'gemini', model: GEMINI_DEFAULT }
   if (declared.lane === 'claude' || open[declared.lane]) return { ...declared, declared }
   return { ...FALLBACK[declared.lane], declared, moved: open.why[declared.lane] }
 }
@@ -130,7 +135,7 @@ export function declarationText(p: Policy, open: Pick<Lanes, 'ollama' | 'gemini'
     const x = p.table[t]
     const live = x.lane === 'claude' || open[x.lane]
     const run = live ? x : FALLBACK[x.lane as Exclude<Lane, 'claude'>]
-    return `${t} → ${routeLabel(run)}${x.lane !== 'claude' && live ? ` via ${x.lane === 'ollama' ? 'ollama_run' : 'gemini_run'}, no subagent` : ''}`
+    return `${t} → ${routeLabel(run)}${x.lane !== 'claude' && live ? ` via ${x.lane === 'ollama' ? 'ollama_run' : 'gemini_run'}, no subagent` : ''}${t === 'visual' && isDefaultVisual(x) && open.gemini ? `; public images → Gemini ${GEMINI_DEFAULT} via gemini_run` : ''}`
   })
   return [
     `Task declarations (${p.declare === 'block' ? 'enforced: undeclared spawns are refused' : 'checked: undeclared spawns are flagged to the owner'}): start every Agent description with "task:<type> sensitivity:<client|internal|public>", e.g. "${EXAMPLE}". The mod sets the model and effort from this table: ${rows.join('; ')}.`,
@@ -160,42 +165,89 @@ export const CLIENT_PATTERNS = ['client_briefs/', 'runs/metrics/', 'engine/rag/g
 // the backticked paths of that section, and of any line that says so.
 export function neverCommitPatterns(text: string): string[] {
   const out = new Set<string>()
-  const take = (chunk: string) => {
-    for (const m of chunk.matchAll(/`([^`\n]{1,120})`/g)) {
-      const p = m[1]!.trim()
-      if (/^[\w.*\/-]+$/.test(p) && /[./*]/.test(p) && !/^\d/.test(p)) out.add(p)
-    }
+  const add = (p: string) => { if (/^[\w.*\/-]+$/.test(p) && /[./*]/.test(p) && !/^\d/.test(p) && !/^\.{2,}$/.test(p)) out.add(p) }
+  const take = (chunk: string, bare: boolean) => {
+    for (const m of chunk.matchAll(/`([^`\n]{1,120})`/g)) add(m[1]!.trim())
+    // Unbackticked paths: a folder ("client_briefs/"), a dotfile (".env"), a glob ("*.env") or a file with an extension in a folder.
+    if (bare) for (const m of chunk.replace(/`[^`\n]*`/g, ' ').matchAll(/(?:^|[\s(,;:"'])((?:\.{0,2}\/)?[\w.*-]+(?:\/[\w.*-]+)*\/|\.[\w-]{2,}|\*\.[\w]+|[\w-]+(?:\/[\w.-]+)+\.\w{1,6})(?=[\s),;:"'.]|$)/g)) add(m[1]!.replace(/^\.\//, ''))
   }
+  const SAYS = /never commit|do not commit|don'?t commit|must not be committed|confidential|never (?:share|send|upload|push)/i
   const lines = text.split('\n')
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!
-    if (/^\s*#{1,6}\s.*(never commit|confidential)/i.test(line)) {
+    if (/^\s*#{1,6}\s.*(never commit|do not commit|don'?t commit|confidential)/i.test(line)) {
       let j = i + 1
       const chunk: string[] = []
       while (j < lines.length && !/^\s*#{1,6}\s/.test(lines[j]!)) chunk.push(lines[j++]!)
-      take(chunk.join('\n'))
-    } else if (/never commit|confidential/i.test(line)) take(line)
+      take(chunk.join('\n'), true)
+    } else if (SAYS.test(line)) take(line, true)
   }
   return [...out]
 }
 
 const esc = (s: string) => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&')
-// A pattern as a match on path boundaries: "dir/" anywhere a path segment starts, "*.env" any file of that kind.
+// A pattern as a match on path boundaries: "dir/" anywhere a path segment starts, with or without its trailing
+// slash ("cd client_briefs && ...", "ls runs/metrics"), "*.env" any file of that kind.
 export function patternRegex(p: string): RegExp {
-  const body = esc(p.replace(/^\.?\//, '')).replace(/\*/g, '[^\\s/"\'`]*')
-  return new RegExp(`(?:^|[\\s"'\`(=:/@])${body}${p.endsWith('/') ? '' : '(?![\\w-])'}`, 'i')
+  const dir = p.endsWith('/')
+  const body = esc(p.replace(/^\.?\//, '').replace(/\/+$/, '')).replace(/\*/g, '[^\\s/"\'`]*')
+  return new RegExp(`(?:^|[\\s"'\`(=:/@;&|<>])${body}${dir ? '(?:/|\\s|$|["\'`);&|<>])' : '(?![\\w-])'}`, 'i')
+}
+
+const globRe = (g: string) => new RegExp(`^${[...g].map(c => c === '*' ? '.*' : c === '?' ? '.' : esc(c)).join('')}$`, 'i')
+// A glob in the text ("client_br*/x", "runs/met*") that could name a folder the patterns protect, compared segment by segment.
+function globHit(text: string, patterns: string[]): string | undefined {
+  const tokens = text.split(/[\s"'`()=;&|<>]+/).filter(t => /[*?]/.test(t) && t.replace(/[*?]/g, '').length >= 3)
+  for (const p of patterns.filter(x => x.endsWith('/'))) {
+    const dir = p.replace(/^\.?\//, '').replace(/\/+$/, '').split('/')
+    for (const tok of tokens) {
+      const all = tok.split('/').filter(Boolean)
+      for (let at = 0; at < all.length; at++) {
+        const segs = all.slice(at, at + dir.length)
+        if (segs.every((s, i) => globRe(s).test(dir[i]!)) && segs.some(s => /[*?]/.test(s) && s.replace(/[*?]/g, '').length >= 2)) return p
+      }
+    }
+  }
+  return undefined
 }
 export function clientHit(text: string, patterns: string[]): string | undefined {
-  return patterns.find(p => patternRegex(p).test(text))
+  return patterns.find(p => patternRegex(p).test(text)) ?? globHit(text, patterns)
 }
 
 export const onAllowlist = (allow: string[], cwd: string) => allow.some(a => a === '/' || cwd === a || cwd.startsWith(`${a}/`))
 
-// May this go to Antigravity? Not client work, not text naming client paths, and only from an allowlisted project.
-export function cloudCheck(p: Policy, cwd: string, opts: { sensitivity?: string; text?: string; found?: string[] } = {}): { allowed: boolean; why?: string } {
+// ---------- sensitivity a side-lane call carries ----------
+
+const RANK: Record<string, number> = { public: 0, internal: 1, client: 2 }
+// The strictest declared sensitivity of an agent chain (the calling agent and its parents). A word that is not
+// one of the three is read as client: fail closed.
+export function strictest(declared: (string | undefined)[]): Sensitivity | undefined {
+  let top: Sensitivity | undefined
+  for (const d of declared) {
+    if (d === undefined) continue
+    const s = (d in RANK ? d : 'client') as Sensitivity
+    if (!top || RANK[s]! > RANK[top]!) top = s
+  }
+  return top
+}
+// What a gemini_run call is held to: the tool argument must be exactly public or internal (client is accepted as
+// the stricter word and then refused downstream); it can only make the inherited sensitivity stricter.
+export function sideSensitivity(arg: unknown, inherited: Sensitivity | undefined): { sensitivity: Sensitivity } | { refuse: string } {
+  if (arg !== 'public' && arg !== 'internal' && arg !== 'client') return { refuse: `sensitivity must be exactly "public" or "internal" (got ${arg === undefined ? 'nothing' : JSON.stringify(String(arg)).slice(0, 40)}); client material never goes to a cloud lane` }
+  return { sensitivity: strictest([arg, inherited]) ?? arg }
+}
+
+// May this go to Antigravity? Not client work (or an unknown sensitivity), not text naming client paths, not from a
+// folder inside a confidential path, and only from an allowlisted project. publicOnly also refuses internal.
+export function cloudCheck(p: Policy, cwd: string, opts: { sensitivity?: string; text?: string; found?: string[]; publicOnly?: boolean } = {}): { allowed: boolean; why?: string } {
   if (opts.sensitivity === 'client') return { allowed: false, why: 'client material never goes to a cloud lane' }
-  const hit = opts.text ? clientHit(opts.text, [...CLIENT_PATTERNS, ...(opts.found ?? []), ...p.patterns]) : undefined
+  if (opts.sensitivity !== undefined && opts.sensitivity !== 'public' && opts.sensitivity !== 'internal') return { allowed: false, why: `sensitivity "${String(opts.sensitivity).slice(0, 40)}" is not public or internal, so it is treated as client material` }
+  if (opts.publicOnly && opts.sensitivity !== 'public') return { allowed: false, why: 'this lane takes public material only: its sandbox is not proven to keep it to the files given' }
+  const patterns = [...CLIENT_PATTERNS, ...(opts.found ?? []), ...p.patterns]
+  const hit = opts.text ? clientHit(opts.text, patterns) : undefined
   if (hit) return { allowed: false, why: `it names a confidential path (${hit})` }
+  const here = cwd ? clientHit(`${cwd}/`, patterns) : undefined
+  if (here) return { allowed: false, why: `this folder is inside a confidential path (${here})` }
   if (!onAllowlist(p.allow, cwd)) return { allowed: false, why: `this project (${cwd || 'unknown'}) is not on the Antigravity allowlist` }
   return { allowed: true }
 }

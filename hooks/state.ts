@@ -537,7 +537,7 @@ export const routingText = (saved: Routing, _done: Partial<Record<Provider, numb
       : '',
     r.on.antigravity
       ? agyJobOn(r, 'coding') || agyJobOn(r, 'visual')
-        ? `Antigravity ${!agyJobOn(r, 'coding') ? 'is for visual and media checks only; ' : ''}${HOW.antigravity(undefined, undefined, r)}. For a one-shot visual check (images as absolute paths) or a small public or internal text job, call gemini_run (mcp__agent-overview__gemini_run) directly, no subagent; never with client material.`
+        ? `Antigravity ${!agyJobOn(r, 'coding') ? 'is for visual and media checks only; ' : ''}${HOW.antigravity(undefined, undefined, r)}. For a one-shot visual check (images as absolute paths, inside this project) or a small public text job, call gemini_run (mcp__agent-overview__gemini_run) directly, no subagent; public material only, never internal or client material.`
         : 'Antigravity has no available jobs: do not use it.'
       : '',
   ]

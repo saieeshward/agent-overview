@@ -52,6 +52,9 @@ export type Impl = { agents: { provider: Provider; model: string; effort?: strin
 export type AgentNode = {
   id: string
   agentId?: string
+  // The sensitivity its spawn declared, and whether it was started to redo a side lane's failed task.
+  sensitivity?: string
+  escalated?: boolean
   pid?: number
   detached?: boolean
   dir?: string

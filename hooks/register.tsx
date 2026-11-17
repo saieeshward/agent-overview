@@ -23,14 +23,15 @@ import { DEFAULT_PINS, MARKS, dropServerBlocks, filterListing, forcedText, offTe
 import { PANE, drawBand, drawPane, fit, tok } from './view'
 import { IMPACT, shortModel, tableOf } from './ui'
 import { mergeFinding, stageDeny, workText } from './work/stage'
-import { geminiRun } from './gemini'
+import { geminiRun, vetImages } from './gemini'
+import { runsAgy } from './agyguard'
 import { cleanPicked, listWorktrees, listingText, parsePicks } from './worktrees'
 import { ADVERSARY, ADVERSARY_MODEL, ADVERSARY_PROMPT, cancel as cancelReview, mainTurnEnded, mainTurnStarted, noteReviewer, parseArgs, prepare as prepareReview, reviewerDone, startRound, statusText } from './adversarial'
 import { escalation, failure, isEscalated } from './escalate'
 import type { Format } from './escalate'
-import { GEMINI_MODELS } from './policy'
+import { GEMINI_DEFAULT, GEMINI_MODELS, isDefaultVisual } from './policy'
 import { flushCheck, mark, markCount, readDebugLog, startCheck } from './hookcheck'
-import { FALLBACK, cloudCheck, declarationText, defaultPolicy, isProblem, neverCommitPatterns, laneName, laneTool, lanesOpen, loadPolicy, logRoute, parseDeclaration, resolveRoute, settleRoute } from './policy'
+import { FALLBACK, CLIENT_PATTERNS, clientHit, strictest, sideSensitivity, cloudCheck, declarationText, defaultPolicy, isProblem, neverCommitPatterns, laneName, laneTool, lanesOpen, loadPolicy, logRoute, parseDeclaration, resolveRoute, settleRoute } from './policy'
 import type { Resolved } from './policy'
 
 // State lives here as well as beside the other hooks: the engine lists each file's reads and writes from its own consts.
@@ -70,6 +71,7 @@ const stage = atom({ plugin: 'agent-overview', key: 'stage' } as const, null as 
 const impl = atom({ plugin: 'agent-overview', key: 'impl' } as const, { agents: [] } as Impl)
 const findings = atom({ plugin: 'agent-overview', key: 'findings' } as const, [] as Finding[])
 const policy = atom({ plugin: 'agent-overview', key: 'policy' } as const, defaultPolicy())
+const routeLog = atom({ plugin: 'agent-overview', key: 'routeLog' } as const, [] as RouteLogItem[])
 const confidential = atom({ plugin: 'agent-overview', key: 'confidential' } as const, { cwd: '', found: [], sources: [] } as Confidential)
 
 const GRILL_TOOL = 'mcp__agent-overview__grill_log'
@@ -405,9 +407,10 @@ async function openLanes($: EngineInterface, sensitivity?: Sensitivity) {
 }
 
 // Whether this project and this text may go to Antigravity (Phase 3's allowlist and client patterns).
-async function cloudOk($: EngineInterface, opts: { sensitivity?: string; text?: string }) {
+async function cloudOk($: EngineInterface, opts: { sensitivity?: string; text?: string; publicOnly?: boolean }) {
   const c = await read($, confidential)
-  const cwd = c.cwd || await $.session.cwd().catch(() => '')
+  // The folder now, not the one the session started in: a cd moves it.
+  const cwd = await $.session.cwd().catch(() => '') || c.cwd
   const sensitivity = opts.sensitivity ?? (/\bsensitivity:\s*client\b/i.test(opts.text ?? '') ? 'client' : undefined)
   return cloudCheck(await read($, policy), cwd, { ...opts, sensitivity, found: c.found })
 }
@@ -432,19 +435,40 @@ async function loadConfidential($: EngineInterface) {
   await update($, confidential, () => ({ cwd, found: [...found].slice(0, 40), sources }))
 }
 
+// The strictest sensitivity declared along an agent's chain (itself and its parents), and whether it was sent here by an
+// escalation. A word that is not public, internal or client counts as client.
+async function chainInfo($: EngineInterface, agentId?: string): Promise<{ sensitivity?: Sensitivity; escalated: boolean }> {
+  if (!agentId) return { escalated: false }
+  const list = await read($, nodes), log = await read($, routeLog)
+  const declared: (string | undefined)[] = []
+  let escalated = false
+  let n = list.find(x => x.agentId === agentId)
+  for (let i = 0; n && i < 20; i++) {
+    const at = n
+    declared.push(at.sensitivity ?? log.find(x => x.agentId === at.agentId && x.tool === 'Agent')?.sensitivity)
+    if (at.escalated) escalated = true
+    n = at.parentNode ? list.find(x => x.id === at.parentNode) : undefined
+  }
+  if (!list.some(x => x.agentId === agentId)) declared.push(log.find(x => x.agentId === agentId && x.tool === 'Agent')?.sensitivity)
+  return { sensitivity: strictest(declared), escalated }
+}
+const ESCALATED_DENY = 'This agent was started to redo a task a side lane could not answer: side lanes are closed to it. Do the task yourself in Claude.'
+
 // An Agent spawn's declared task, checked against the owner's table: where it runs, or why it may not.
 type TaskCheck = { exempt: true } | { deny: string; item: RouteLogItem } | { route?: Resolved; item: RouteLogItem; warn?: string }
-async function checkTask($: EngineInterface, e: { tool_use_id: string; description: string; fork?: boolean; resume?: unknown; workflow?: unknown; isTeammate?: boolean }): Promise<TaskCheck> {
+async function checkTask($: EngineInterface, e: { tool_use_id: string; description?: string; fork?: boolean; resume?: unknown; workflow?: unknown; isTeammate?: boolean }): Promise<TaskCheck> {
   if (e.fork || e.resume || e.workflow || e.isTeammate) return { exempt: true }
   const p = await read($, policy)
-  const d = parseDeclaration(e.description)
-  const base = { at: await $.clock.now(), id: e.tool_use_id, tool: 'Agent', label: e.description.slice(0, 120) }
+  const d = parseDeclaration(e.description ?? '')
+  const base = { at: await $.clock.now(), id: e.tool_use_id, tool: 'Agent', label: String(e.description ?? '').slice(0, 120) }
   if (isProblem(d)) {
     const item: RouteLogItem = { ...base, type: d.type, sensitivity: d.sensitivity, declared: d.problem, lane: 'claude', model: '', outcome: p.declare === 'block' ? 'denied' : p.declare === 'warn' ? 'warned' : 'running', note: d.fix }
     if (p.declare === 'block') return { deny: `Routing guard: ${d.fix}`, item }
     return { item, warn: p.declare === 'warn' ? `Routing guard: "${e.description.slice(0, 40)}" ${d.problem === 'missing' ? 'has no task declaration' : `declares ${d.type ?? '?'}/${d.sensitivity ?? '?'}, not on the table`}` : undefined }
   }
-  let route = resolveRoute(p, d.type, await openLanes($, d.sensitivity))
+  // With declarations off the mod only records what was declared: it never moves a model or an effort.
+  if (p.declare === 'off') return { item: { ...base, type: d.type, sensitivity: d.sensitivity, declared: 'ok', lane: 'claude', model: '', outcome: 'running' } }
+  let route = resolveRoute(p, d.type, await openLanes($, d.sensitivity), d.sensitivity)
   // A side lane's failed answer comes back to Claude once, by design: run it on the lane's Claude step up.
   if (route.declared.lane !== 'claude' && !route.moved && isEscalated(d.rest)) route = { ...FALLBACK[route.declared.lane as Exclude<Lane, 'claude'>], declared: route.declared, moved: `escalated from ${laneName(route.declared.lane)}` }
   const item: RouteLogItem = { ...base, type: d.type, sensitivity: d.sensitivity, declared: 'ok', lane: route.lane, model: route.model, effort: route.effort, outcome: 'running', note: route.moved ? `${laneName(route.declared.lane)} unavailable: ${route.moved}` : undefined }
@@ -679,6 +703,7 @@ async function ollamaRun($: EngineInterface, e: Loose): Promise<ToolCallResult> 
   if (info.offline) return { deny: `Ollama's ${OLLAMA_DOWN}: ask the owner to open the Ollama app, or hand the task to another provider.` }
   const prompt = typeof e.prompt === 'string' ? e.prompt : ''
   if (!prompt.trim()) return { deny: 'prompt is empty: put the whole task and its input in prompt.' }
+  if ((await chainInfo($, e.agentId as string | undefined)).escalated) return { deny: ESCALATED_DENY }
   const pick = ollamaPick(r, info.models.map(m => m.id), typeof e.model === 'string' && e.model.trim() ? e.model.trim() : undefined)
   if ('deny' in pick) return pick
   const system = typeof e.system === 'string' && e.system.trim() ? e.system : undefined
@@ -721,23 +746,35 @@ async function ollamaRun($: EngineInterface, e: Loose): Promise<ToolCallResult> 
   })
 }
 
-const AGY_RUN = /(?:^|[;&|(]\s*|\s)(?:\S*\/)?agy\s+(?:[^;&|]*\s)?(?:-p|--print|--prompt|-i|--prompt-interactive)(?:[\s=]|$)/
 // A Gemini answer through `agy -p`, run by the mod itself: tracked like a side run, its tokens and speed kept.
 async function geminiTool($: EngineInterface, e: Loose): Promise<ToolCallResult> {
   const r = await read($, routing)
   const panel = "(set by the owner in the agent panel's Models tab)"
   const prompt = typeof e.prompt === 'string' ? e.prompt : ''
-  const images = Array.isArray(e.images) ? e.images.filter((x): x is string => typeof x === 'string' && x.startsWith('/')).slice(0, 8) : []
-  const job = images.length || !r.agyCoding ? 'visual' as const : 'coding' as const
+  const imagesGiven = Array.isArray(e.images) ? e.images.length : 0
+  const job = imagesGiven || !r.agyCoding ? 'visual' as const : 'coding' as const
   if (r.role === 'claude') return { deny: `Antigravity is paused: Claude only ${panel}. Do this in Claude.` }
   if (!r.on.antigravity) return { deny: `Antigravity is turned off ${panel}. Do this in Claude.` }
   if (!agyJobOn(r, job)) return { deny: `Antigravity has ${job === 'visual' ? 'visual checks' : 'coding and text work'} off or out of quota ${panel}. Do this in Claude.` }
   if (!prompt.trim()) return { deny: 'prompt is empty: put the whole task and its input in prompt.' }
-  const sensitivity = typeof e.sensitivity === 'string' ? e.sensitivity : undefined
-  const cloud = await cloudOk($, { sensitivity, text: [prompt, ...images].join('\n') })
+  const info = await chainInfo($, e.agentId as string | undefined)
+  if (info.escalated) return { deny: ESCALATED_DENY }
+  // The call inherits the strictest sensitivity of the agent chain that made it; its own argument can only add to that.
+  const declaredHere = parseDeclaration(String(e.description ?? ''))
+  const said = sideSensitivity(e.sensitivity, strictest([info.sensitivity, declaredHere.sensitivity]))
+  if ('refuse' in said) return { deny: `Antigravity refused: ${said.refuse}. Do this in Claude, or on Ollama (ollama_run) for private text.` }
+  const sensitivity = said.sensitivity
+  const cwd = await $.session.cwd().catch(() => '')
+  const c0 = await read($, confidential)
+  const patterns = [...CLIENT_PATTERNS, ...c0.found, ...(await read($, policy)).patterns]
+  const vet = await vetImages($, e.images, cwd, text => { const hit = clientHit(text, patterns); return hit ? `names a confidential path (${hit})` : undefined })
+  if ('error' in vet) return { deny: `Antigravity refused: ${vet.error}` }
+  const images = vet.paths
+  // Gemini's sandbox is not proven to keep it to the files given, so this lane takes public material only.
+  const cloud = await cloudOk($, { sensitivity, text: [prompt, ...images].join('\n'), publicOnly: true })
   if (!cloud.allowed) return { deny: `Antigravity refused: ${cloud.why}. Do this in Claude, or on Ollama (ollama_run) for private text.` }
   const p = await read($, policy)
-  const model = typeof e.model === 'string' && GEMINI_MODELS.includes(e.model) ? e.model : p.table.visual.lane === 'gemini' ? p.table.visual.model : agyJobModel(r, job)
+  const model = typeof e.model === 'string' && GEMINI_MODELS.includes(e.model) ? e.model : p.table.visual.lane === 'gemini' ? p.table.visual.model : isDefaultVisual(p.table.visual) ? GEMINI_DEFAULT : agyJobModel(r, job)
   const parentRow = e.agentId ? (await read($, nodes)).find(n => n.agentId === e.agentId) : undefined
   const startedAt = await $.clock.now()
   const node: AgentNode = {
@@ -755,7 +792,8 @@ async function geminiTool($: EngineInterface, e: Loose): Promise<ToolCallResult>
       const quota = QUOTA_TEXT.test(out.error ?? '')
       if (quota) await update($, providers, all => ({ ...all, antigravity: { ...all.antigravity, alert: 'quota hit · its run said so' } }))
       await settleRoute($, x => x.id === e.tool_use_id, { outcome: 'failed', tokens, ms: out.ms, note: out.error })
-      return { deny: `Gemini run on ${model} failed: ${out.error ?? out.status}${quota ? ' (out of quota)' : ''}` }
+      // A failed run goes to Claude once, like an unusable answer: the hint stops a loop of retries on the side lanes.
+      return { deny: `Gemini run on ${model} failed: ${out.error ?? out.status}${quota ? ' (out of quota)' : ''}\n${escalation('gemini', `the run failed: ${(out.error ?? out.status).slice(0, 100)}`, { type: isProblem(d) ? (images.length ? 'visual' : undefined) : d.type, sensitivity })}` }
     }
     const why = failure(out.text, { format: e.format === 'json' ? 'json' : undefined })
     if (why) {
@@ -1040,16 +1078,17 @@ export const register: Register = on => {
       isDeferred: false,
       description:
         'Run one prompt on Gemini through the Antigravity CLI (agy -p, plan mode, sandboxed, from an empty temp folder) and get its text back. ' +
-        'For visual checks (pass images: what text, logos or defects an image shows) and small public or internal text jobs. ' +
-        'It has no tools and sees only the prompt and the images you pass, so put everything it needs in prompt. ' +
-        'Never for client material: sensitivity "client" and confidential paths are refused, as is any project not on the owner\'s Antigravity allowlist. ' +
+        'For visual checks (pass images: what text, logos or defects an image shows) and small public text jobs. ' +
+        'PUBLIC MATERIAL ONLY: its sandbox is not proven to stop reads outside its temp folder, so sensitivity "internal" and "client" are refused, as are confidential paths and any project not on the owner\'s Antigravity allowlist. ' +
+        'The call also inherits the strictest sensitivity of the agent that makes it (the argument can only make it stricter), and sensitivity must be exactly "public" or it is refused. ' +
+        'Put everything it needs in prompt; images must be image files inside this project. ' +
         'Works only while the owner has Antigravity on in the agent panel.',
       inputSchema: {
         type: 'object',
         properties: {
           prompt: { type: 'string', description: 'The whole task, with any text it needs pasted in' },
-          sensitivity: { type: 'string', enum: ['public', 'internal', 'client'], description: 'client is always refused' },
-          images: { type: 'array', items: { type: 'string' }, description: 'Absolute paths of images to look at (copied into the temp folder)' },
+          sensitivity: { type: 'string', enum: ['public', 'internal', 'client'], description: 'Only "public" is sent; anything else is refused' },
+          images: { type: 'array', items: { type: 'string' }, description: 'Absolute paths of image files (png, jpg, webp, gif, avif; under 20 MB) inside this project; each is resolved and copied into the temp folder' },
           model: { type: 'string', enum: GEMINI_MODELS, description: "Left out, the owner's visual model" },
           format: { type: 'string', enum: ['json'], description: 'json when the answer must be valid JSON' },
           description: { type: 'string', description: 'A few words for the agent panel' },
@@ -1260,6 +1299,7 @@ export const register: Register = on => {
     if (!r0.on.claude) return { deny: 'Claude crew is off; use an enabled provider.' }
     if (r0.role === 'plan' && g.planSubagents === 'block') return { deny: planDeny(r0) }
     const task = await checkTask($, e)
+    const declared = parseDeclaration(String(e.description ?? ''))
     if ('deny' in task) {
       await logRoute($, task.item)
       $.ui.toast(`✗ ${task.deny.slice(0, 90)}`)
@@ -1311,6 +1351,9 @@ export const register: Register = on => {
       state: 'running',
       steps: 0,
       startedAt,
+      // What the spawn declared, kept on the node so a side-lane call can inherit it before the route log has the agent's id.
+      sensitivity: 'item' in task ? task.item.sensitivity : undefined,
+      escalated: !isProblem(declared) && isEscalated(declared.rest) ? true : undefined,
     }
     await update($, nodes, all => [...all, node].slice(-60))
     void update($, used, u => ({ ...u, agentTypes: bump(u.agentTypes, e.subagentType) }))
@@ -1556,8 +1599,9 @@ export const register: Register = on => {
     if (e.tool === 'Agent' && e.subagent_type !== 'fork') {
       const d = parseDeclaration(String(e.description ?? ''))
       if (!isProblem(d)) {
-        const route = resolveRoute(await read($, policy), d.type, await openLanes($, d.sensitivity))
-        const effort = route.lane === 'claude' ? route.effort : FALLBACK[route.lane].effort
+        const policy0 = await read($, policy)
+        const route = policy0.declare === 'off' ? undefined : resolveRoute(policy0, d.type, await openLanes($, d.sensitivity), d.sensitivity)
+        const effort = !route ? undefined : route.lane === 'claude' ? route.effort : FALLBACK[route.lane].effort
         if (effort && effort !== e.effort) sent = { ...call, effort } as typeof call
       }
     }
@@ -1570,13 +1614,16 @@ export const register: Register = on => {
     const parentRow = e.agentId ? (await read($, nodes)).find(n => n.agentId === e.agentId) : undefined
     const parentNode = parentRow?.id
     const base = { id: e.tool_use_id, state: 'running', steps: 0, startedAt: await $.clock.now(), parentId: e.agentId, parentNode, run: parentRow?.run ?? mainTurn } as const
-    if (/^mcp__antigravity__gemini_(bounded_task|visual_qa|media_task)$/.test(e.tool)) {
+    // Every Antigravity MCP tool takes the same gate, not only the three that run tasks.
+    if (/^mcp__antigravity__/.test(e.tool)) {
       if (r.role === 'claude') return refuse('antigravity', 'is paused: Claude only')
       if (!r.on.antigravity) return refuse('antigravity', 'is turned off')
+      const chain = await chainInfo($, e.agentId)
+      if (chain.escalated) return { deny: ESCALATED_DENY }
       const isCoding = e.tool === 'mcp__antigravity__gemini_bounded_task'
       const job = isCoding ? 'coding' : 'visual'
       if (!agyJobOn(r, job)) return refuse('antigravity', `has ${isCoding ? 'coding or text work' : 'visual checks'} disabled or out of quota`)
-      const cloud = await cloudOk($, { text: JSON.stringify(call) })
+      const cloud = await cloudOk($, { text: JSON.stringify(call), sensitivity: chain.sensitivity })
       if (!cloud.allowed) return { deny: `Antigravity refused: ${cloud.why}. Keep this in Claude or on Ollama (set by the owner in the agent panel's Models tab, CONFIDENTIAL card).` }
       const preferred = agyJobModel(r, job)
       const model = typeof e.model === 'string' && e.model ? e.model : preferred
@@ -1598,12 +1645,18 @@ export const register: Register = on => {
         if (u) void update($, costs, c => ({ ...c, agy: { ...c.agy, [model]: addTokens(c.agy[model] ?? zero(), u) } }))
       }
     } else {
-      // A direct `agy -p` run is Antigravity too: the same switches and the same confidentiality rules.
-      if (e.tool === 'Bash' && AGY_RUN.test(String(e.command ?? ''))) {
-        if (r.role === 'claude') return refuse('antigravity', 'is paused: Claude only')
-        if (!r.on.antigravity) return refuse('antigravity', 'is turned off')
-        const cloud = await cloudOk($, { text: String(e.command ?? '') })
-        if (!cloud.allowed) return { deny: `Antigravity refused: ${cloud.why}. Keep this in Claude or on Ollama (set by the owner in the agent panel's Models tab, CONFIDENTIAL card).` }
+      // The Antigravity CLI never runs from Bash, in any form: only gemini_run carries the checks (switches, allowlist, sensitivity, images).
+      if (e.tool === 'Bash') {
+        const command = String(e.command ?? '')
+        const why = await runsAgy($, command, await $.session.cwd().catch(() => ''))
+        if (why) {
+          if (r.role === 'claude') return refuse('antigravity', 'is paused: Claude only')
+          if (!r.on.antigravity) return refuse('antigravity', 'is turned off')
+          const chain = await chainInfo($, e.agentId)
+          const cloud = await cloudOk($, { text: command, sensitivity: chain.sensitivity })
+          if (!cloud.allowed) return { deny: `Antigravity refused: ${cloud.why}. Keep this in Claude or on Ollama (set by the owner in the agent panel's Models tab, CONFIDENTIAL card).` }
+          return { deny: `Antigravity is not run from Bash (${why}). Use mcp__agent-overview__gemini_run for public material: it carries the allowlist, sensitivity and image checks.` }
+        }
       }
       const ext = e.tool === 'Bash' ? externalOf(String(e.command ?? '')) : undefined
       if (ext && r.role === 'claude') return refuse(ext.provider, 'is paused: Claude only')
