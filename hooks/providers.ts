@@ -882,10 +882,13 @@ export async function ollamaCheck($: $) {
   } catch {}
 }
 
-export type OllamaRun = { text: string; model: string; outputTokens?: number; ms?: number }
-export const ollamaBody = (model: string, prompt: string, opts: { system?: string; long?: boolean; think?: boolean } = {}) => ({
+export type OllamaRun = { text: string; model: string; outputTokens?: number; inputTokens?: number; ms?: number; doneReason?: string }
+export type OllamaOpts = { system?: string; long?: boolean; think?: boolean; format?: 'json' | Record<string, unknown>; images?: string[] }
+export const ollamaBody = (model: string, prompt: string, opts: OllamaOpts = {}) => ({
   model, prompt, stream: false, keep_alive: '10m',
   ...(opts.system ? { system: opts.system } : {}),
+  ...(opts.format ? { format: opts.format } : {}),
+  ...(opts.images?.length ? { images: opts.images } : {}),
   options: { num_ctx: opts.long || prompt.length + (opts.system?.length ?? 0) > OLLAMA_LONG ? 16384 : 8192 },
   // Thinking models answer straight away: reasoning would only slow a small local job. Others ignore it.
   ...(opts.think === false ? { think: false } : {}),
@@ -903,7 +906,7 @@ export async function ollamaSpeed($: $, model: string, outputTokens: number, ms:
 }
 
 // One generation, not streamed. Speed comes from Ollama's own counts: eval_count over eval_duration (ns).
-export async function ollamaGenerate($: $, model: string, prompt: string, opts: { system?: string; long?: boolean } = {}): Promise<OllamaRun> {
+export async function ollamaGenerate($: $, model: string, prompt: string, opts: Omit<OllamaOpts, 'think'> = {}): Promise<OllamaRun> {
   const send = async (body: object) => {
     const response = await ollamaFetch($, '/api/generate', { method: 'POST', body: JSON.stringify(body) }, OLLAMA_TIMEOUT)
     let json: any = {}
@@ -918,5 +921,6 @@ export async function ollamaGenerate($: $, model: string, prompt: string, opts: 
   const outputTokens = typeof json?.eval_count === 'number' ? json.eval_count : undefined
   const ms = typeof json?.eval_duration === 'number' ? json.eval_duration / 1e6 : undefined
   if (outputTokens !== undefined && ms !== undefined) await ollamaSpeed($, model, outputTokens, ms)
-  return { text, model, outputTokens, ms }
+  const inputTokens = typeof json?.prompt_eval_count === 'number' ? json.prompt_eval_count : undefined
+  return { text, model, outputTokens, inputTokens, ms, doneReason: typeof json?.done_reason === 'string' ? json.done_reason : undefined }
 }

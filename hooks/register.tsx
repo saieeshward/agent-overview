@@ -24,6 +24,8 @@ import { PANE, drawBand, drawPane, fit, tok } from './view'
 import { IMPACT, shortModel, tableOf } from './ui'
 import { mergeFinding, stageDeny, workText } from './work/stage'
 import { geminiRun } from './gemini'
+import { escalation, failure, isEscalated } from './escalate'
+import type { Format } from './escalate'
 import { GEMINI_MODELS } from './policy'
 import { flushCheck, mark, markCount, readDebugLog, startCheck } from './hookcheck'
 import { FALLBACK, cloudCheck, declarationText, defaultPolicy, isProblem, neverCommitPatterns, laneName, laneTool, lanesOpen, loadPolicy, logRoute, parseDeclaration, resolveRoute, settleRoute } from './policy'
@@ -440,6 +442,8 @@ async function checkTask($: EngineInterface, e: { tool_use_id: string; descripti
     return { item, warn: p.declare === 'warn' ? `Routing guard: "${e.description.slice(0, 40)}" ${d.problem === 'missing' ? 'has no task declaration' : `declares ${d.type ?? '?'}/${d.sensitivity ?? '?'}, not on the table`}` : undefined }
   }
   let route = resolveRoute(p, d.type, await openLanes($, d.sensitivity))
+  // A side lane's failed answer comes back to Claude once, by design: run it on the lane's Claude step up.
+  if (route.declared.lane !== 'claude' && !route.moved && isEscalated(d.rest)) route = { ...FALLBACK[route.declared.lane as Exclude<Lane, 'claude'>], declared: route.declared, moved: `escalated from ${laneName(route.declared.lane)}` }
   const item: RouteLogItem = { ...base, type: d.type, sensitivity: d.sensitivity, declared: 'ok', lane: route.lane, model: route.model, effort: route.effort, outcome: 'running', note: route.moved ? `${laneName(route.declared.lane)} unavailable: ${route.moved}` : undefined }
   // A task the table gives to a side lane is called directly there; a subagent for it is the wrong lane.
   if (route.declared.lane !== 'claude' && !route.moved) {
@@ -676,19 +680,34 @@ async function ollamaRun($: EngineInterface, e: Loose): Promise<ToolCallResult> 
   if ('deny' in pick) return pick
   const system = typeof e.system === 'string' && e.system.trim() ? e.system : undefined
   const long = e.long === true || prompt.length > OLLAMA_LONG
+  const format: Format | undefined = e.format === 'json' || (e.format && typeof e.format === 'object' && !Array.isArray(e.format)) ? e.format as Format : undefined
+  const paths = Array.isArray(e.images) ? e.images.filter((x): x is string => typeof x === 'string' && x.startsWith('/')).slice(0, 8) : []
+  const images: string[] = []
+  for (const path of paths) {
+    const bytes = await $.fs.read(path, { as: 'bytes' }).catch(() => undefined)
+    if (!bytes) return { deny: `Cannot read the image ${path}.` }
+    images.push(bytes.base64)
+  }
   const parentRow = e.agentId ? (await read($, nodes)).find(n => n.agentId === e.agentId) : undefined
   const node: AgentNode = {
     id: e.tool_use_id, state: 'running', steps: 0, startedAt: await $.clock.now(), parentId: e.agentId, parentNode: parentRow?.id, run: parentRow?.run ?? mainTurn,
     label: String(e.description ?? '') || labelOf(prompt) || 'Ollama run', kind: 'Ollama', model: pick.model, provider: 'ollama', input: clip(prompt, 20000),
   }
   const d = parseDeclaration(String(e.description ?? ''))
-  const item: RouteLogItem = { at: node.startedAt!, id: e.tool_use_id, tool: 'ollama_run', label: node.label, declared: isProblem(d) ? 'exempt' : 'ok', type: isProblem(d) ? undefined : d.type, sensitivity: isProblem(d) ? undefined : d.sensitivity, lane: 'ollama', model: pick.model, outcome: 'running' }
+  const decl = { type: isProblem(d) ? undefined : d.type, sensitivity: isProblem(d) ? (typeof e.sensitivity === 'string' ? e.sensitivity : undefined) : d.sensitivity }
+  const item: RouteLogItem = { at: node.startedAt!, id: e.tool_use_id, tool: 'ollama_run', label: node.label, declared: isProblem(d) ? 'exempt' : 'ok', ...decl, lane: 'ollama', model: pick.model, outcome: 'running' }
   await logRoute($, item)
   return track($, node, async (): Promise<ToolCallResult> => {
     try {
-      const out = await ollamaGenerate($, pick.model, prompt, { system, long })
-      await settleRoute($, x => x.id === e.tool_use_id, { outcome: 'done', tokens: out.outputTokens, ms: out.ms })
-      return { result: out.text || '(the model returned no text)' }
+      const out = await ollamaGenerate($, pick.model, prompt, { system, long, format, images })
+      const tokens = out.outputTokens === undefined ? undefined : out.outputTokens + (out.inputTokens ?? 0)
+      const why = failure(out.text, { doneReason: out.doneReason, format })
+      if (why) {
+        await settleRoute($, x => x.id === e.tool_use_id, { outcome: 'escalated', tokens, ms: out.ms, note: `${why} → Claude Haiku` })
+        return { result: escalation('ollama', why, decl) }
+      }
+      await settleRoute($, x => x.id === e.tool_use_id, { outcome: 'done', tokens, ms: out.ms })
+      return { result: out.text }
     } catch (err) {
       await settleRoute($, x => x.id === e.tool_use_id, { outcome: 'failed', note: String((err as Error)?.message ?? err).slice(0, 200) })
       const msg = String((err as Error)?.message ?? err).slice(0, 300)
@@ -735,8 +754,13 @@ async function geminiTool($: EngineInterface, e: Loose): Promise<ToolCallResult>
       await settleRoute($, x => x.id === e.tool_use_id, { outcome: 'failed', tokens, ms: out.ms, note: out.error })
       return { deny: `Gemini run on ${model} failed: ${out.error ?? out.status}${quota ? ' (out of quota)' : ''}` }
     }
+    const why = failure(out.text, { format: e.format === 'json' ? 'json' : undefined })
+    if (why) {
+      await settleRoute($, x => x.id === e.tool_use_id, { outcome: 'escalated', tokens, ms: out.ms, note: `${why} → Claude Sonnet` })
+      return { result: escalation('gemini', why, { type: isProblem(d) ? (images.length ? 'visual' : undefined) : d.type, sensitivity }) }
+    }
     await settleRoute($, x => x.id === e.tool_use_id, { outcome: 'done', tokens, ms: out.ms })
-    return { result: out.text || '(the model returned no text)' }
+    return { result: out.text }
   })
 }
 
@@ -979,6 +1003,9 @@ export const register: Register = on => {
           model: { type: 'string', description: 'An installed Ollama model, as the routing lists it; left out, the first allowed one' },
           system: { type: 'string', description: 'Optional system instruction, such as the output format' },
           long: { type: 'boolean', description: 'True for a long input: uses a 16K context window instead of 8K' },
+          format: { description: '"json", or a JSON schema object, when the answer must be JSON; an answer that does not parse or match is escalated to Claude Haiku' },
+          images: { type: 'array', items: { type: 'string' }, description: 'Absolute paths of images for a vision model (private visual checks stay on this Mac)' },
+          sensitivity: { type: 'string', enum: ['public', 'internal', 'client'], description: 'Client work is fine here: it stays on this Mac' },
           description: { type: 'string', description: 'A few words for the agent panel' },
         },
         required: ['prompt'],
