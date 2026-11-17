@@ -157,6 +157,8 @@ export async function workCaps($: EngineInterface): Promise<Provider[]> {
 }
 export function agentBlock(r: Routing, p: Provider, over: Provider[] = [], visual = false): string | undefined {
   if (!r.on[p]) return 'provider off'
+  // A local model has no tools: it cannot implement, review files or check visuals.
+  if (p === 'ollama') return 'local · small text jobs only'
   if (r.paused?.[p]) return 'provider paused'
   if (over.includes(p)) return 'over spend cap'
   if (r.role === 'claude' && p !== 'claude') return 'Claude only'
@@ -195,7 +197,7 @@ export function implementPrompt(agents: Impl['agents'], adr: string | undefined,
   return [`Implement the plan ${adr ? `in ${adr}` : "from the Plan stage's Q&A"}.`, qa.map(q => `- ${q.question}: ${q.answer}`).join('\n'), priority, agentList(agents), "Give the implementer full context in one run, check what comes back, run the project's checks, and report. Do not commit."].filter(Boolean).join('\n\n')
 }
 export function reviewPrompt(profile: ReviewProfile, since: string | undefined, note: string | undefined, adr: string | undefined): string {
-  const reviewers = profile.reviewers.filter(r => r.provider !== 'commandcode' && r.provider !== 'opencode')
+  const reviewers = profile.reviewers.filter(r => r.provider !== 'commandcode' && r.provider !== 'opencode' && r.provider !== 'ollama')
   const untracked = 'Also review new untracked files: list them with git status --porcelain and read each one (git diff --no-index /dev/null <file>). Give every reviewer these new files along with the tracked diff.'
   return [`Review the diff ${since ? `since commit ${since} (git diff ${since}), including uncommitted changes` : '(git diff HEAD, including uncommitted changes)'}. Run each reviewer in parallel where possible:`, untracked, reviewers.map((r, i) => `${agentList([r]).replace(/^1\./, `${i + 1}.`).replace('codex exec', 'codex exec -s read-only')} — focus: ${r.focus}`).join('\n'), 'Run every reviewer read-only: Codex CLI must use -s read-only (or --sandbox read-only); Antigravity must use gemini_visual_qa or a read-only bounded task; Claude must use a read-only subagent (Agent tool). OpenCode and Command Code have no enforced read-only mode: omit them. Never allow reviewers to edit files. Give each reviewer the diff, the plan' + (adr ? ` in ${adr}` : " from the Plan stage's Q&A") + ', and their focus.', profile.instructions, note ? `Owner's instructions for this run: ${note}` : '', "Log EVERY finding with the review_log tool (mcp__agent-overview__review_log): { file, line, severity, text, by: '<reviewer model>' }, one call per finding. Do not fix anything yet. End with a short summary."].filter(Boolean).join('\n\n')
 }

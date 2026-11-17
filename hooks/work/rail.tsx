@@ -1,13 +1,13 @@
 import { atom, read } from 'claude-code'
 import type { Costs, Prices, Provider, Providers, Stage, StageId } from '../../types'
 import { rowCost, sessionRows } from '../cost'
-import { blank, defaultRouting } from '../state'
+import { allOf, blank, defaultRouting } from '../state'
 import { colorOf, graphicWidth, heat, leftOf, money, nameOf } from '../ui'
 import type { $, E } from '../ui'
 
 const stage = atom({ plugin: 'agent-overview', key: 'stage' } as const, null as Stage | null)
 const providers = atom({ plugin: 'agent-overview', key: 'providers' } as const, {
-  claude: blank(), codex: blank(), commandcode: blank(), opencode: blank(), antigravity: blank(),
+  claude: blank(), codex: blank(), commandcode: blank(), opencode: blank(), antigravity: blank(), ollama: blank(),
 } as Providers)
 const routing = atom({ plugin: 'agent-overview', key: 'routing' } as const, defaultRouting())
 const costs = atom({ plugin: 'agent-overview', key: 'costs' } as const, { rows: [], claude: {}, agy: {} } as Costs)
@@ -38,7 +38,7 @@ function usageSvg(all: Providers, providers: Provider[], width: number) {
   const step = width / Math.max(1, providers.length), font = Math.min(13, step / 7.2)
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="76" viewBox="0 0 ${width} 76"><style>text{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:${font}px;fill:#aaa}</style>${providers.map((p, i) => {
     const info = all[p], meters = info.meters.filter(m => m.label !== 'Context'), left = info.alert ? 0 : meters.length ? Math.max(0, Math.min(100, 100 - Math.max(...meters.map(m => m.percent)))) : undefined
-    const x = i * step + 4, bar = step - 12, color = { claude: '#D97757', codex: '#10A37F', opencode: '#a78bfa', commandcode: '#F59E0B', antigravity: '#4285F4' }[p]
+    const x = i * step + 4, bar = step - 12, color = { claude: '#D97757', codex: '#10A37F', opencode: '#a78bfa', commandcode: '#F59E0B', antigravity: '#4285F4', ollama: '#C026D3' }[p]
     const label = info.alert ? 'quota hit' : left === undefined ? 'no quota data' : `${p === 'opencode' && info.usageSource !== 'live' ? '≈' : ''}${Math.round(left)}% left`
     const name = p === 'commandcode' && step < 100 ? `Command<tspan x="${x}" dy="13">Code</tspan>` : esc(nameOf(p))
     return `<text x="${x}" y="13" style="fill:${color}">${name}</text><rect x="${x}" y="32" width="${bar}" height="12" rx="3" fill="#555"/>${left === undefined ? '' : `<rect x="${x}" y="32" width="${bar * left / 100}" height="12" rx="3" fill="${color}"/>`}<text x="${x}" y="65">${esc(label)}</text>`
@@ -46,7 +46,7 @@ function usageSvg(all: Providers, providers: Provider[], width: number) {
 }
 
 export async function workHeader($: $, E: E, w: number) {
-  const [s, all, r, c, pr] = await Promise.all([read($, stage), read($, providers), read($, routing), read($, costs), read($, prices)])
+  const [s, all, r, c, pr] = await Promise.all([read($, stage), read($, providers).then(allOf), read($, routing), read($, costs), read($, prices)])
   const now = await $.clock.now()
   const ctx = all.claude.meters.find(m => m.label === 'Context')
   const enabled = (['claude', ...r.order] as Provider[]).filter(p => all[p].status !== 'missing' && (p === 'claude' || r.on[p]))

@@ -83,6 +83,7 @@ test('the usage tail lists every provider in one dim line', async () => {
     commandcode: { ...blank, facts: ['54.46 monthly credits left'] },
     opencode: { ...blank, facts: ['$0.71 spent in 7 days'] },
     antigravity: { ...blank, alert: 'quota hit' },
+    ollama: blank,
   }
   const r = { ...defaultRouting(), on: { ...defaultRouting().on, codex: false } }
   const usage = 'Claude 5h 66% left wk 88% left · Antigravity quota! · OpenCode $0.71/7d · Command Code 54 cr · Codex off'
@@ -169,7 +170,7 @@ test('side runs unwrap shell, timeout, nohup and env wrappers without reading ta
 })
 
 test('usage tail marks local estimates and cache age and leaves fresh cache percentages alone', () => {
-  const all: Providers = { claude: blank(), codex: blank(), antigravity: blank(), opencode: { ...blank(), meters: [{ label: '5-hour', percent: 50 }] }, commandcode: { ...blank(), usageAt: 0, meters: [{ label: 'Monthly', percent: 62 }] } }
+  const all: Providers = { claude: blank(), codex: blank(), antigravity: blank(), opencode: { ...blank(), meters: [{ label: '5-hour', percent: 50 }] }, commandcode: { ...blank(), usageAt: 0, meters: [{ label: 'Monthly', percent: 62 }] }, ollama: blank() }
   expect(usageTail(all, defaultRouting(), 3 * 3600000)).toContain('Command Code mo 38% left · 3h old')
   expect(usageTail(all, defaultRouting(), 3600000)).not.toContain('old')
   expect(usageTail(all, defaultRouting(), 3 * 3600000)).toContain('OpenCode 5h ≈50% left')

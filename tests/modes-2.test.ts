@@ -27,7 +27,7 @@ function setup(on: On, initial: State = {}, session = () => 'mode-test') {
   on('store.delete', (_$, e) => { delete store[e.key]; return { value: undefined } })
   const state: State = { ui: { tab: 'dashboard', pick: 'claude', area: 'vibe', vibeTab: 'crew' },
     routing: normalRouting(withPicks(defaultRouting(), [{ provider: 'claude', model: 'opus' }, { provider: 'codex', model: 'gpt' }, { provider: 'opencode', model: 'deepseek' }])),
-    providers: { claude: { ...blank(), status: 'ok', meters: [{ label: 'Session', percent: 87 }] }, codex: { ...blank(), status: 'ok', models: [{ id: 'gpt' }, { id: 'backup' }] }, opencode: { ...blank(), status: 'ok' }, antigravity: blank(), commandcode: blank() },
+    providers: { claude: { ...blank(), status: 'ok', meters: [{ label: 'Session', percent: 87 }] }, codex: { ...blank(), status: 'ok', models: [{ id: 'gpt' }, { id: 'backup' }] }, opencode: { ...blank(), status: 'ok' }, antigravity: blank(), commandcode: blank(), ollama: blank() },
     toggles: {}, pins: [], installed: { plugins: [{ name: 'ponytail', enabled: true, where: 'claude', skills: ['ponytail'] }], mcpServers: [], skills: 1 },
     vibe: { acts: [], combo: 0, commits: 0, pushes: 0, best: 0, phase: '' }, ...initial }
   on('state.get', { plugin: 'agent-overview' }, async (_$, e, next) => { const r = await next(e); return e.key in state ? { value: { ...r.value, value: state[e.key] } } as any : r })
@@ -215,7 +215,7 @@ for (const surface of ['desktop', 'terminal'] as const) test(`Crew hand-off, und
 })
 
 test('hand-off skips unavailable, off, exhausted, paused, visual-only and over-cap providers', () => {
-  const ps = { claude: blank(), codex: { ...blank(), status: 'ok' as const }, opencode: { ...blank(), status: 'ok' as const }, commandcode: blank(), antigravity: { ...blank(), status: 'ok' as const } }
+  const ps = { claude: blank(), codex: { ...blank(), status: 'ok' as const }, opencode: { ...blank(), status: 'ok' as const }, commandcode: blank(), antigravity: { ...blank(), status: 'ok' as const }, ollama: blank() }
   const r = normalRouting(withPicks(defaultRouting(), [{ provider: 'antigravity', model: 'gemini' }, { provider: 'codex', model: 'gpt' }, { provider: 'opencode', model: 'deepseek' }]))
   expect(handoff(r, ps)?.provider).toBe('codex')
   expect(handoff(r, ps, ['codex'])?.provider).toBe('opencode')
@@ -304,13 +304,13 @@ test('Crew quota arrows preserve interleaved model ranks and disable both ends',
   expect(await ui.find({ type: 'Button', key: 'crew:up:codex' })).toBeUndefined()
   expect(await ui.find({ type: 'Button', key: 'crew:down:commandcode' })).toBeUndefined()
   await ui.press({ key: 'crew:down:codex' })
-  expect(state.routing!.order).toEqual(['opencode', 'codex', 'antigravity', 'commandcode'])
+  expect(state.routing!.order).toEqual(['opencode', 'codex', 'antigravity', 'commandcode', 'ollama'])
   expect(JSON.stringify(state.routing!.picks)).toBe(ranked)
   await ui.unmount()
 })
 
 test('hand-off preserves planning and prefers Normal over Saver, with Saver as the last fallback', () => {
-  const ps = { claude: blank(), codex: { ...blank(), status: 'ok' as const }, opencode: { ...blank(), status: 'ok' as const }, antigravity: blank(), commandcode: blank() }
+  const ps = { claude: blank(), codex: { ...blank(), status: 'ok' as const }, opencode: { ...blank(), status: 'ok' as const }, antigravity: blank(), commandcode: blank(), ollama: blank() }
   const r = normalRouting({ ...defaultRouting(), role: 'plan', picks: [{ provider: 'codex', model: 'gpt' }, { provider: 'opencode', model: 'deepseek' }], tags: { codex: 'saver' } })
   expect(handoff(r, ps)?.provider).toBe('opencode')
   expect(handoff(r, ps)?.routing.role).toBe('plan')

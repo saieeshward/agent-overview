@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import { saveStage } from '../modes'
 import type { GrillItem, MainInfo, Providers, Stage, Ui } from '../../types'
-import { blank, normalGuard } from '../state'
+import { allOf, blank, normalGuard } from '../state'
 import { Card, Chip, LEVELS, modeControls, shortModel } from '../ui'
 import type { $, E } from '../ui'
 import { saveQa } from '../view'
@@ -13,7 +13,7 @@ const grill = atom({ plugin: 'agent-overview', key: 'grill' } as const, [] as Gr
 const guard = atom({ plugin: 'agent-overview', key: 'guard' } as const, normalGuard(undefined))
 const main = atom({ plugin: 'agent-overview', key: 'main' } as const, { model: '' } as MainInfo)
 const providers = atom({ plugin: 'agent-overview', key: 'providers' } as const, {
-  claude: blank(), codex: blank(), commandcode: blank(), opencode: blank(), antigravity: blank(),
+  claude: blank(), codex: blank(), commandcode: blank(), opencode: blank(), antigravity: blank(), ollama: blank(),
 } as Providers)
 
 export async function planTab($: $, E: E, w: number, rows: number) {
@@ -22,7 +22,7 @@ export async function planTab($: $, E: E, w: number, rows: number) {
   const earlier = retained.filter(q => !qa.includes(q))
   const live = !s || s.at === 'plan', counts = planCounts(qa), u = await read($, ui)
   const showEarlier = u.folded?.['plan:earlier'] === false
-  const models = (await read($, providers)).claude.models
+  const models = (await read($, providers).then(allOf)).claude.models
   const chat = m.model.replace(/\[.*\]$/, '')
   const options = models.map(x => ({ value: x.id, label: shortModel(x.id) }))
   if (chat && !options.some(x => x.value === chat)) options.push({ value: chat, label: shortModel(chat) })

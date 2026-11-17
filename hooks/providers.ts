@@ -2,14 +2,15 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
 import type { Costs, Installed, InstalledPlugin, Meter, ModelRow, Price, Prices, Provider, ProviderInfo, Providers, TokenRow } from '../types'
-import { agyBucket, agyJobQuota, blank, defaultRouting, nameOf, normalGuard, normalRouting, OTHERS, storeRouting } from './state'
+import { allOf, agyBucket, agyJobQuota, blank, defaultRouting, isEmbedder, nameOf, normalGuard, normalRouting, OTHERS, storeRouting } from './state'
 import { catalogFrom, parseCodexTokens, priceKey } from './cost'
 import { quotaOf } from './graph'
 import { at } from './paths'
+import { recordSpeed } from './speed'
 
 // State lives here as well as beside the other hooks: the engine lists each file's reads and writes from its own consts.
 const providers = atom({ plugin: 'agent-overview', key: 'providers' } as const, {
-  claude: blank(), codex: blank(), commandcode: blank(), opencode: blank(), antigravity: blank(),
+  claude: blank(), codex: blank(), commandcode: blank(), opencode: blank(), antigravity: blank(), ollama: blank(),
 } as Providers)
 const costs = atom({ plugin: 'agent-overview', key: 'costs' } as const, { rows: [], claude: {}, agy: {} } as Costs)
 const prices = atom({ plugin: 'agent-overview', key: 'prices' } as const, { catalog: {}, overrides: {} } as Prices)
@@ -28,14 +29,15 @@ const BIN = {
   cmd: '/Applications/Command Code.app/Contents/Resources/app/node_modules/command-code/dist/index.mjs',
   opencode: '/opt/homebrew/bin/opencode',
   agy: '.local/bin/agy',
+  ollama: '/usr/local/bin/ollama',
   sqlite: '/usr/bin/sqlite3',
 }
 
 // ---------- where each CLI lives on this machine ----------
 
-type Tool = 'codex' | 'opencode' | 'agy' | 'cmd' | 'node'
-const TOOL_NAMES: Record<Tool, string[]> = { codex: ['codex'], opencode: ['opencode'], agy: ['agy'], cmd: ['command-code', 'commandcode'], node: ['node'] }
-const TOOL_FIRST: Record<Tool, string> = { codex: BIN.codex, opencode: BIN.opencode, agy: BIN.agy, cmd: BIN.cmd, node: BIN.node }
+type Tool = 'codex' | 'opencode' | 'agy' | 'cmd' | 'node' | 'ollama'
+const TOOL_NAMES: Record<Tool, string[]> = { codex: ['codex'], opencode: ['opencode'], agy: ['agy'], cmd: ['command-code', 'commandcode'], node: ['node'], ollama: ['ollama'] }
+const TOOL_FIRST: Record<Tool, string> = { codex: BIN.codex, opencode: BIN.opencode, agy: BIN.agy, cmd: BIN.cmd, node: BIN.node, ollama: BIN.ollama }
 // Not ~/.antigravity: its `agy` there opens the IDE, it is not the CLI.
 const TOOL_DIRS = ['/opt/homebrew/bin', '/usr/local/bin', '.local/bin', '.bun/bin', '.npm-global/bin', '.opencode/bin', '.volta/bin', '.cargo/bin']
 const CC_STATE = 'Library/Application Support/Command Code/app-state.json'
@@ -90,6 +92,7 @@ type Side = Exclude<Provider, 'claude'>
 async function whereIs($: $, p: Side): Promise<string | undefined> {
   if (p === 'codex') return locate($, 'codex')
   if (p === 'opencode') return locate($, 'opencode')
+  if (p === 'ollama') return locate($, 'ollama')
   if (p === 'antigravity') {
     const cli = await locate($, 'agy')
     if (cli !== undefined) return cli
@@ -115,10 +118,10 @@ async function present($: $, p: Side): Promise<string | undefined> {
 }
 async function check($: $, p: Side): Promise<string | undefined> {
   const path = await whereIs($, p)
-  const info = (await read($, providers))[p]
+  const info = (await read($, providers).then(allOf))[p]
   if (path === undefined) {
     if (info.status !== 'missing' || info.error !== NOT_INSTALLED || info.meters.length || info.facts.length) {
-      await patch($, p, { status: 'missing', error: NOT_INSTALLED, meters: [], facts: [], models: [], alert: undefined, note: undefined, agyQuota: undefined, usageSource: undefined, usageAt: undefined, plan: undefined, current: undefined, checkedAt: await $.clock.now() })
+      await patch($, p, { status: 'missing', error: NOT_INSTALLED, meters: [], facts: [], models: [], alert: undefined, note: undefined, agyQuota: undefined, usageSource: undefined, usageAt: undefined, plan: undefined, current: undefined, offline: undefined, checkedAt: await $.clock.now() })
       // The routing told to the model leaves it out from now on.
       $.ui.invalidate('prompt.section')
     }
@@ -145,12 +148,12 @@ async function sql($: $, db: string, query: string) {
 }
 
 function patch($: $, p: Provider, change: Partial<ProviderInfo>) {
-  return update($, providers, all => ({ ...all, [p]: { ...all[p], ...change } }))
+  return update($, providers, all => ({ ...all, [p]: { ...blank(), ...all[p], ...change } }))
 }
 
 function patchUsage($: $, p: Provider, change: Partial<ProviderInfo>) {
   return update($, providers, all => {
-    const previous = all[p]
+    const previous = all[p] ?? blank()
     const keep = previous.status === 'missing' || previous.status === 'error' && previous.error?.startsWith('models:')
     return { ...all, [p]: { ...previous, ...change, status: keep ? previous.status : 'ok', error: keep ? previous.error : undefined } }
   })
@@ -408,7 +411,7 @@ async function collectUsage($: $, p: 'opencode' | 'commandcode', manual: boolean
     // JSON drops undefined fields in the store; restore them to clear a previous alert or note.
     const got = { meters, plan, facts, alert, usageAt, usageSource, note, current }
     // A failed usage fetch must not erase a quota hit reported by this session's run.
-    if (got.usageSource !== 'live' && (await read($, providers))[p].alert === 'quota hit · its run said so') got.alert = 'quota hit · its run said so'
+    if (got.usageSource !== 'live' && (await read($, providers).then(allOf))[p].alert === 'quota hit · its run said so') got.alert = 'quota hit · its run said so'
     await patchUsage($, p, { ...got, checkedAt: fetchedAt })
   } finally { if (usagePending.get(p) === task) usagePending.delete(p) }
 }
@@ -678,6 +681,7 @@ export function refreshUsage($: $, only?: Provider, manual = false) {
     commandcode: () => commandCodeUsage($, manual),
     opencode: () => opencodeUsage($, manual),
     antigravity: () => antigravityUsage($),
+    ollama: () => ollamaCheck($),
   }
   return Promise.all((only ? [only] : (Object.keys(all) as Provider[])).map(p => all[p]()))
 }
@@ -689,6 +693,7 @@ export function refreshModels($: $, only?: Provider) {
     commandcode: () => commandCodeModels($),
     opencode: () => opencodeModels($),
     antigravity: () => antigravityModels($),
+    ollama: () => ollamaCheck($),
   }
   return Promise.all((only ? [only] : (Object.keys(all) as Provider[])).map(p => all[p]()))
 }
@@ -702,7 +707,7 @@ export async function recheck($: $, p: Provider) {
 
 // Providers out of quota go off until their reset (an hour when it is not known), then come back.
 export async function watchQuota($: EngineInterface) {
-  let all = await read($, providers)
+  let all = await read($, providers).then(allOf)
   let r = await read($, routing)
   const agyQuota = all.antigravity.agyQuota
   const quotaChanged = JSON.stringify(r.agyQuota) !== JSON.stringify(agyQuota)
@@ -719,7 +724,7 @@ export async function watchQuota($: EngineInterface) {
   for (const p of OTHERS) {
     const was = paused[p]
     if (was && now >= was.until && all[p].alert === 'quota hit · its run said so') {
-      all = await update($, providers, x => ({ ...x, [p]: { ...x[p], alert: x[p].alert === 'quota hit · its run said so' ? undefined : x[p].alert } }))
+      all = allOf(await update($, providers, x => ({ ...x, [p]: { ...blank(), ...x[p], alert: x[p]?.alert === 'quota hit · its run said so' ? undefined : x[p]?.alert } })))
     }
     const jobs = p === 'antigravity' && agyQuota ? (['coding', 'visual'] as const).filter(job => job === 'coding' ? r.agyCoding : r.agyVisual).map(job => agyJobQuota(r, job, now)) : undefined
     const out = jobs?.length && jobs.every(Boolean) ? jobs.filter((q): q is NonNullable<typeof q> => !!q) : []
@@ -807,14 +812,15 @@ export async function loadPrices($: $, refresh = false) {
   if (opencodePath) await runTool($, opencodePath, ['models', '--refresh'], { timeoutMs: 30000 }).catch(() => '')
   try {
     const c = await read($, costs)
-    const all = await read($, providers)
+    const all = await read($, providers).then(allOf)
     const r = await read($, routing)
     const wanted = new Set<string>([
       ...c.rows.map(x => priceKey(x.model)),
       ...Object.keys(c.claude).map(priceKey),
       ...Object.keys(c.agy).map(priceKey),
-      ...r.picks.map(x => priceKey(x.model)),
-      ...(Object.values(all) as ProviderInfo[]).flatMap(p => p.models.map(m => priceKey(m.id))),
+      ...r.picks.filter(x => x.provider !== 'ollama').map(x => priceKey(x.model)),
+      // Local models cost nothing: a catalogue price for the same open model would mislead.
+      ...(Object.entries(all) as [Provider, ProviderInfo][]).filter(([p]) => p !== 'ollama').flatMap(([, p]) => p.models.map(m => priceKey(m.id))),
     ])
     // The catalogue is over $.fs.read's 4 MiB limit: node hands back just the prices (~0.7 MB).
     const trim = 'const d=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));const o={};for(const[p,v]of Object.entries(d))for(const[m,x]of Object.entries(v.models||{}))if(x.cost&&typeof x.cost.input==="number")(o[p]??={models:{}}).models[m]={cost:x.cost};process.stdout.write(JSON.stringify(o))'
@@ -825,4 +831,92 @@ export async function loadPrices($: $, refresh = false) {
     const fetchedAt = await $.clock.now()
     await update($, prices, p => ({ catalog, overrides: saved ?? p.overrides, fetchedAt, missing }))
   } catch {}
+}
+
+// ---------- Ollama: models on this Mac, through its local server ----------
+
+export const OLLAMA_URL = 'http://127.0.0.1:11434'
+export const OLLAMA_DOWN = 'local server not running'
+// Local generation runs near 20 tokens a second; a long answer to a long prompt takes minutes.
+export const OLLAMA_TIMEOUT = 600000
+// Prompts past about 6,000 tokens get the larger context window.
+export const OLLAMA_LONG = 24000
+
+// `ollama list`: NAME  ID  SIZE  MODIFIED, columns two or more spaces apart.
+export function parseOllamaList(text: string): { models: ModelRow[]; embedders: number } {
+  const rows = text.replace(/\x1b\[[0-9;]*m/g, '').split('\n').map(l => l.trim()).filter(l => l && !/^NAME\s/.test(l)).map(l => l.split(/\s{2,}/))
+  const named = rows.filter(r => r[0] && /^[\w./:-]+$/.test(r[0]))
+  const models = named.filter(r => !isEmbedder(r[0]!)).map(r => ({ id: r[0]!, info: [r[2], 'free · local'].filter(Boolean).join(' · ') }))
+  return { models, embedders: named.length - models.length }
+}
+
+// The local server, with a deadline: the host fetch has no abort, so a late reply is ignored.
+async function ollamaFetch($: $, path: string, init: { method: 'GET' | 'POST'; body?: string }, ms: number) {
+  let timer: ReturnType<$['clock']['after']> | undefined
+  try {
+    return await Promise.race([
+      $.http.fetch(`${OLLAMA_URL}${path}`, { method: init.method, ...(init.body !== undefined ? { body: init.body, headers: { 'Content-Type': 'application/json' } } : {}) }),
+      new Promise<never>((_resolve, reject) => { timer = $.clock.after(ms, () => reject(new Error(`no answer from Ollama in ${Math.round(ms / 1000)}s`))) }),
+    ])
+  } finally { timer?.cancel() }
+}
+// Present when the CLI is there; available when its server answers `ollama list`.
+export async function ollamaCheck($: $) {
+  const path = await present($, 'ollama')
+  if (path === undefined) return
+  try {
+    // `ollama list` asks the local server: it fails when the server is not running.
+    const out = await runTool($, path, ['list'], { timeoutMs: 8000 }).catch(() => undefined)
+    const got = out === undefined ? undefined : parseOllamaList(out)
+    const was = (await read($, providers).then(allOf)).ollama ?? blank()
+    const now = await $.clock.now()
+    const offline = got ? undefined : OLLAMA_DOWN
+    await patch($, 'ollama', {
+      status: 'ok', error: undefined, offline, checkedAt: now, meters: [], alert: undefined, plan: 'local',
+      models: got?.models ?? was.models,
+      facts: got ? ['server running', `${got.models.length} chat model${got.models.length === 1 ? '' : 's'} installed`, ...(got.embedders ? [`${got.embedders} embedding model${got.embedders === 1 ? '' : 's'} not offered for tasks`] : []), 'free · no quota'] : ['free · no quota'],
+      note: got ? undefined : 'installed, but its local server is not answering: open the Ollama app',
+    })
+    // The routing told to the model names Ollama only while its server answers.
+    if (!!was.offline !== !!offline || was.status !== 'ok') $.ui.invalidate('prompt.section')
+  } catch {}
+}
+
+export type OllamaRun = { text: string; model: string; outputTokens?: number; ms?: number }
+export const ollamaBody = (model: string, prompt: string, opts: { system?: string; long?: boolean; think?: boolean } = {}) => ({
+  model, prompt, stream: false, keep_alive: '10m',
+  ...(opts.system ? { system: opts.system } : {}),
+  options: { num_ctx: opts.long || prompt.length + (opts.system?.length ?? 0) > OLLAMA_LONG ? 16384 : 8192 },
+  // Thinking models answer straight away: reasoning would only slow a small local job. Others ignore it.
+  ...(opts.think === false ? { think: false } : {}),
+})
+
+// Short answers add up per model until they make one sample the speed store keeps.
+const pendingSpeed = new Map<string, { outputTokens: number; ms: number }>()
+export async function ollamaSpeed($: $, model: string, outputTokens: number, ms: number) {
+  if (!(outputTokens > 0) || !(ms > 0)) return
+  const held = pendingSpeed.get(model) ?? { outputTokens: 0, ms: 0 }
+  const next = { outputTokens: held.outputTokens + outputTokens, ms: held.ms + ms }
+  if (next.outputTokens < 200 || next.ms < 2000) { pendingSpeed.set(model, next); return }
+  pendingSpeed.delete(model)
+  await recordSpeed($, model, next.outputTokens, next.ms)
+}
+
+// One generation, not streamed. Speed comes from Ollama's own counts: eval_count over eval_duration (ns).
+export async function ollamaGenerate($: $, model: string, prompt: string, opts: { system?: string; long?: boolean } = {}): Promise<OllamaRun> {
+  const send = async (body: object) => {
+    const response = await ollamaFetch($, '/api/generate', { method: 'POST', body: JSON.stringify(body) }, OLLAMA_TIMEOUT)
+    let json: any = {}
+    try { json = JSON.parse(response.text) } catch {}
+    return { response, json }
+  }
+  let { response, json } = await send(ollamaBody(model, prompt, { ...opts, think: false }))
+  // Should a server refuse the switch for a model that cannot think, ask again without it.
+  if (!response.ok && /think/i.test(String(json?.error ?? ''))) ({ response, json } = await send(ollamaBody(model, prompt, opts)))
+  if (!response.ok) throw new Error(String(json?.error ?? `HTTP ${response.status}`).slice(0, 300))
+  const text = typeof json?.response === 'string' ? json.response : ''
+  const outputTokens = typeof json?.eval_count === 'number' ? json.eval_count : undefined
+  const ms = typeof json?.eval_duration === 'number' ? json.eval_duration / 1e6 : undefined
+  if (outputTokens !== undefined && ms !== undefined) await ollamaSpeed($, model, outputTokens, ms)
+  return { text, model, outputTokens, ms }
 }

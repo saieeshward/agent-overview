@@ -29,7 +29,8 @@ export const C = {
 // Fourteen room colours, shared by furniture, faces, code and time-of-day skies.
 export const ROOM = { wall: 46, lower: 47, floor: 48, edge: 49, desk: 50, top: 51, outline: 52,
   light: 53, gold: 54, red: 55, green: 56, day: 57, sunset: 58, night: 59 } as const
-export const OFFICE_CAST: Record<Provider, number> = { claude: 60, codex: 61, antigravity: 62, opencode: 63, commandcode: 64 }
+// Ollama has no desk or brand slot of its own in the scenes: it borrows the base palette's lavender.
+export const OFFICE_CAST: Record<Provider, number> = { claude: 60, codex: 61, antigravity: 62, opencode: 63, commandcode: 64, ollama: C.lavender }
 export const OFFICE_ACCENTS = { eye: 65, glow: 66 } as const
 // Claude Code's banner, with each quadrant row doubled vertically.
 export const CLAWD = [
@@ -37,7 +38,7 @@ export const CLAWD = [
   'OOOOOOOOOOOOOOOO', 'OOOOOOOOOOOOOOOO', '..OOOOOOOOOOOO..', '..OOOOOOOOOOOO..',
   '...O.O....O.O...', '...O.O....O.O...',
 ]
-export const PROVIDER_NAMES: Record<Provider, string> = { claude: 'Claude', codex: 'Codex', antigravity: 'Antigravity', opencode: 'OpenCode', commandcode: 'Command Code' }
+export const PROVIDER_NAMES: Record<Provider, string> = { claude: 'Claude', codex: 'Codex', antigravity: 'Antigravity', opencode: 'OpenCode', commandcode: 'Command Code', ollama: 'Ollama' }
 export const TERMINAL_DEFAULT = 0x01000000
 export type HudSegment = { text: string; color?: string; bold?: boolean; dim?: boolean }
 export type HudLine = HudSegment[]
@@ -49,7 +50,7 @@ export const DIM: Record<number, number> = Object.fromEntries(PALETTE.map((_, i)
   [C.woodLight]: C.wood, [C.wood]: C.woodDark, [C.woodDark]: C.shadow,
   [C.yellow]: C.gold, [C.lime]: C.green, [C.blue]: C.navy, [C.leaf]: C.leafDark,
 } as Record<number, number>)[i] ?? i]))
-export const CAST: Record<Provider, number> = { claude: C.claude, codex: C.codex, antigravity: C.antigravity, opencode: C.opencode, commandcode: C.commandcode }
+export const CAST: Record<Provider, number> = { claude: C.claude, codex: C.codex, antigravity: C.antigravity, opencode: C.opencode, commandcode: C.commandcode, ollama: C.lavender }
 // A frame: PALETTE indices, row-major.
 export type Canvas = { w: number; h: number; px: Uint8Array }
 // String-art rows; each char maps to a PALETTE index, ' ' and '.' are transparent.

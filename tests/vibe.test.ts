@@ -53,7 +53,7 @@ function sessionMocks(on: On, sessionId = () => 'chat') {
 test('Vibe snapshots derive agents, edit precedence, quotas, costs, decisions and session totals', async ($, on) => {
   mock.clock(on, { now: 100000 })
   const r = { ...defaultRouting(), order: ['opencode', 'codex', 'commandcode', 'antigravity'] as const as any, tags: { claude: 'saver' as const, opencode: 'main' as const }, paused: { commandcode: { why: 'quota', at: 1, until: 200000 } } }
-  const ps = { claude: blank(), codex: blank(), opencode: blank(), commandcode: blank(), antigravity: blank() }
+  const ps = { claude: blank(), codex: blank(), opencode: blank(), commandcode: blank(), antigravity: blank(), ollama: blank() }
   ps.claude.meters = [{ label: 'Context', percent: 91 }, { label: 'Week', percent: 23 }]
   ps.codex.meters = [{ label: 'Daily', percent: 45 }, { label: 'Week', percent: 100 }, { label: 'Context', percent: 99 }]
   ps.antigravity.alert = 'quota exhausted'
@@ -548,7 +548,7 @@ test('Clawd is the exact unobscured 16 by 10 banner sprite, with orange body and
 })
 
 test('working mascots have distinct silhouettes, Clawd steps and blinks, and delegation adds a hop', () => {
-  expect(new Set(Object.values(MASCOTS).map(rows => rows.map(row => row.replace(/[^.]/g, '#')).join('\n'))).size).toBe(5)
+  expect(new Set(DESKS.map(p => MASCOTS[p]).map(rows => rows.map(row => row.replace(/[^.]/g, '#')).join('\n'))).size).toBe(5)
   const d = { ...FIXTURES.busy, tests: null, main: { ...FIXTURES.busy.main, lastTool: 'Edit' } }
   const frames = office.frames(d, { motion: 'full' })
   expect(region(frames[0]!, 6, 56, 16, 2)).not.toEqual(region(frames[6]!, 6, 56, 16, 2))

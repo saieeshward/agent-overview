@@ -1,6 +1,6 @@
 import { atom, read, update } from 'claude-code'
 import type { MainInfo, ModelSpeeds, Provider, Providers, Routing, RoutingTag, Ui } from '../../types'
-import { agyJobOn, blank, defaultRouting, nameOf, normalGuard, tagOf, withPicks, withTag } from '../state'
+import { allOf, agyJobOn, blank, defaultRouting, nameOf, normalGuard, tagOf, withPicks, withTag } from '../state'
 import { adversaryControls, agyControls, babysitterRow, Chip, colorOf, graphicWidth, leftOf, modeControls, modelEfforts, modelPicker, routingGuardRow, saveModel, saveRouting, optimizeControls, modelSpeed, shortModel, TAGS } from '../ui'
 import type { $, E } from '../ui'
 import { C, OFFICE_ACCENTS, OFFICE_CAST, ROOM, canvas, remap, sprite, toCells, toSvg } from './engine'
@@ -11,19 +11,20 @@ import { presetsCard } from '../presets'
 
 const modelSpeeds = atom({ plugin: 'agent-overview', key: 'modelSpeeds' } as const, {} as ModelSpeeds)
 const routing = atom({ plugin: 'agent-overview', key: 'routing' } as const, defaultRouting())
-const providers = atom({ plugin: 'agent-overview', key: 'providers' } as const, { claude: blank(), codex: blank(), opencode: blank(), commandcode: blank(), antigravity: blank() } as Providers)
+const providers = atom({ plugin: 'agent-overview', key: 'providers' } as const, { claude: blank(), codex: blank(), opencode: blank(), commandcode: blank(), antigravity: blank(), ollama: blank() } as Providers)
 const ui = atom({ plugin: 'agent-overview', key: 'ui' } as const, { tab: 'dashboard', pick: 'claude' } as Ui)
 const main = atom({ plugin: 'agent-overview', key: 'main' } as const, { model: '' } as MainInfo)
 const guard = atom({ plugin: 'agent-overview', key: 'guard' } as const, normalGuard(undefined))
 
 export function handoff(r: Routing, ps: Providers, over: Provider[] = []): { routing: Routing; provider: Provider } | undefined {
-  const available = r.picks.filter(a => a.provider !== 'claude' && r.on[a.provider] && !r.paused?.[a.provider] && !over.includes(a.provider) && ps[a.provider].status === 'ok' && (a.provider === 'antigravity' && r.agyQuota ? agyJobOn(r, 'coding') : !ps[a.provider].alert && !ps[a.provider].meters.some(m => m.label !== 'Context' && m.percent >= 100) && (a.provider !== 'antigravity' || r.agyCoding)))
+  // Ollama takes small local jobs only: it never becomes Main by a hand-off.
+  const available = r.picks.filter(a => a.provider !== 'claude' && a.provider !== 'ollama' && r.on[a.provider] && !r.paused?.[a.provider] && !over.includes(a.provider) && ps[a.provider].status === 'ok' && (a.provider === 'antigravity' && r.agyQuota ? agyJobOn(r, 'coding') : !ps[a.provider].alert && !ps[a.provider].meters.some(m => m.label !== 'Context' && m.percent >= 100) && (a.provider !== 'antigravity' || r.agyCoding)))
   const pick = available.find(a => tagOf(r, a.provider) !== 'saver') ?? available[0]
   if (!pick) return
   return { provider: pick.provider, routing: withTag(withTag({ ...r, role: r.role === 'claude' ? 'auto' : r.role }, 'claude', 'saver'), pick.provider, 'main') }
 }
 export async function performHandoff($: $) {
-  const before = await read($, routing), current = handoff(before, await read($, providers), await workCaps($))
+  const before = await read($, routing), current = handoff(before, await read($, providers).then(allOf), await workCaps($))
   if (!current || tagOf(before, current.provider) === 'main' && tagOf(before, 'claude') === 'saver') return undefined
   const after = await saveRouting($, () => current.routing, { kind: 'handoff', provider: current.provider })
   const until = await $.clock.now() + 30000
@@ -42,13 +43,13 @@ export async function undoHandoff($: $) {
 export function portrait(E: E, p: Provider, size = 120, dim = false) {
   const c = canvas(22, 22, C.PAPER)
   sprite(c, { rows: MASCOTS[p], map: { '#': ROOM.outline, a: OFFICE_CAST[p], l: ROOM.light, O: OFFICE_CAST.claude, k: OFFICE_ACCENTS.eye } }, 3, p === 'claude' ? 6 : 2)
-  if (dim && !E.desk) remap(c, 0, 0, c.w, c.h, { [OFFICE_CAST[p]]: ({ claude: C.claudeDark, codex: C.codexDark, antigravity: C.agyDark, opencode: C.opencodeDark, commandcode: C.cmdDark })[p], [ROOM.light]: ROOM.edge })
+  if (dim && !E.desk) remap(c, 0, 0, c.w, c.h, { [OFFICE_CAST[p]]: ({ claude: C.claudeDark, codex: C.codexDark, antigravity: C.agyDark, opencode: C.opencodeDark, commandcode: C.cmdDark, ollama: C.darkGrey })[p], [ROOM.light]: ROOM.edge })
   return E.desk ? <E.Svg key={`crew:portrait:${p}`} source={toSvg([c], { fps: 1 }).replace('<svg ', `<svg opacity="${dim ? .4 : 1}" `)} width={size} height={size} alt={`${nameOf(p)} mascot`} /> : <E.Raster key={`crew:portrait:${p}`} {...toCells(c, 22)} />
 }
 export async function crewTab($: $, E: E, w: number) {
   const Action = await modeControls($, E, 'vibe')
   stopPlayback()
-  const [r, ps, u, now, over, chat] = await Promise.all([read($, routing), read($, providers), read($, ui), $.clock.now(), workCaps($), read($, main)])
+  const [r, ps, u, now, over, chat] = await Promise.all([read($, routing), read($, providers).then(allOf), read($, ui), $.clock.now(), workCaps($), read($, main)])
   const speeds = await read($, modelSpeeds)
   const babysitter = await babysitterRow($, E)
   const candidate = handoff(r, ps, over), tired = ps.claude.alert || ps.claude.meters.some(m => m.label !== 'Context' && m.percent > 80)

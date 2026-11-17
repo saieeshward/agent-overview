@@ -77,6 +77,7 @@ function sideCall(text: string, masked: string, vars: Record<string, string> = {
   let provider: Provider | undefined
   if (/^(?:[^\s"']*\/)?codex\s+(?:(?:-C|--cd)(?:\s+|=)(?:"[^"]*"|'[^']*'|[^\s]+)\s+)*(?:exec|e)(?=\s|$)/.test(program)) provider = 'codex'
   else if (!node && /^(?:[^\s"']*\/)?opencode\s+run(?=\s|$)/.test(program)) provider = 'opencode'
+  else if (!node && /^(?:[^\s"']*\/)?ollama\s+run(?=\s|$)/.test(program)) provider = 'ollama'
   else {
     const quoted = /^(?:"([^"]*)"|'([^']*)')(?=\s|$)/.exec(original)
     const path = quoted ? quoted[1] ?? quoted[2]! : undefined
@@ -86,12 +87,31 @@ function sideCall(text: string, masked: string, vars: Record<string, string> = {
   }
   if (!provider || /(?:^|\s)(?:--help|-h|--version|-V)(?=\s|$)/.test(masked)) return undefined
   if (provider === 'commandcode' && !/(?:^|\s)(?:-p|--print)(?=\s|$|=)/.test(masked)) return undefined
+  if (provider === 'ollama') {
+    const model = ollamaModelOf(original)
+    return model ? { provider, model, effort: undefined as string | undefined, dir: undefined as string | undefined } : undefined
+  }
   const model = flagValue(text, masked, /(?:^|\s)(?:-m|--model)(?:[ \t]+|=)/)
   const dir = flagValue(text, masked, /(?:^|\s)(?:-C|--cd)(?:[ \t]+|=)/)
   const effort = provider === 'codex'
     ? [...masked.matchAll(/(?:^|\s)(?:-c|--config)(?:[ \t]+|=)/g)].map(m => flagValue(text.slice(m.index), masked.slice(m.index), /^(?:\s)?(?:-c|--config)(?:[ \t]+|=)/)?.match(/^model_reasoning_effort\s*=\s*["']?([\w-]+)/)?.[1]).find(Boolean)
     : flagValue(text, masked, provider === 'opencode' ? /(?:^|\s)--variant(?:[ \t]+|=)/ : /(?:^|\s)--effort(?:[ \t]+|=)/)
   return { provider, model, ...(effort ? { effort } : {}), ...(dir ? { dir } : {}) }
+}
+
+// `ollama run [flags] MODEL [PROMPT]`: the first word after run that is not a flag or a flag's value.
+const OLLAMA_VALUES = ['--format', '--keepalive', '--dimensions', '--ask', '--choice', '--level', '--voice']
+function ollamaModelOf(text: string): string | undefined {
+  const words = wordsOf(text).filter(w => !w.operator)
+  const run = words.findIndex(w => w.text === 'run')
+  for (let i = run + 1; run >= 0 && i < words.length; i++) {
+    const w = words[i]!.text
+    if (/^[;&|]/.test(w)) return undefined
+    if (OLLAMA_VALUES.includes(w)) { i++; continue }
+    if (w.startsWith('-')) continue
+    return w
+  }
+  return undefined
 }
 
 type SideCommand = { provider: Provider; model?: string; effort?: string; dir?: string; text: string; start: number; shell?: { start: number; end: number; command: string } }
@@ -174,6 +194,16 @@ export function taskOf(command: string): string | undefined {
   let start = program + 1
   while (args[start]?.text === '-C' || args[start]?.text === '--cd' || /^(?:-C|--cd)=/.test(args[start]?.text ?? '')) start += args[start]!.text.includes('=') ? 1 : 2
   if (found.provider === 'codex' ? !['exec', 'e'].includes(args[start]?.text ?? '') : args[start]?.text !== 'run') return undefined
+  if (found.provider === 'ollama') {
+    const at = args.findIndex((a, i) => i > start && a.text === found.model)
+    const text: string[] = []
+    for (let i = at + 1; at >= 0 && i < args.length; i++) {
+      if (args[i]!.operator) { i++; continue }
+      if (OLLAMA_VALUES.includes(args[i]!.text)) { i++; continue }
+      if (!args[i]!.text.startsWith('-')) text.push(args[i]!.text)
+    }
+    return text.join(' ').trim() || undefined
+  }
   const values = ['-m', '--model', '-c', '--config', '-s', '--sandbox', '-C', '--cd', '-o', '--output-last-message', '--output-schema', '-p', '--profile', '-i', '--image', '--variant', '--agent', '--format', '--session', '--title', '--file', '-f', '--attach', '--port', '--add-dir', '--enable', '--disable', '--color', '--local-provider', '--thread-source', '--cyber-access-program']
   const text: string[] = []
   let positional = false
@@ -337,8 +367,13 @@ export const usageTail = (all: Providers, r: Routing, now?: number) => {
   const parts: string[] = [role + (r.role !== 'claude' && r.worker && r.on[r.worker.provider] && !(r.role === 'plan' && r.worker.provider === 'claude') ? ` ⇢ ${r.worker.model}` : '')]
   for (const p of ['claude', ...r.order] as Provider[]) {
     const info = all[p]
-    if (info.status === 'missing') continue
+    if (!info || info.status === 'missing') continue
     const short = nameOf(p)
+    // Local and free: nothing to watch unless it is on and its server is down.
+    if (p === 'ollama') {
+      if (r.on[p] && info.offline) parts.push(`${short} down`)
+      continue
+    }
     if (p !== 'claude' && !r.on[p]) {
       parts.push(`${short} off`)
       continue

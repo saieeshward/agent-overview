@@ -112,7 +112,7 @@ test('meters and times read right', async () => {
 
 test('routing text tells the model what is on, off and preferred', async () => {
   const r = normalRouting({ order: ['opencode'], on: { commandcode: false }, models: { antigravity: ['gemini-4-argon-high'] }, agyMode: 'visual', role: 'plan', worker: { provider: 'codex', model: 'gpt-6.1-sol' } })
-  expect(r.order).toEqual(['opencode', 'antigravity', 'commandcode', 'codex'])
+  expect(r.order).toEqual(['opencode', 'antigravity', 'commandcode', 'codex', 'ollama'])
   const text = routingText(r)
   expect(text).toContain('1. gemini-4-argon-high on Antigravity')
   expect(routingText({ ...r, picks: [] })).toContain('1. OpenCode, 2. Antigravity, 3. Codex')

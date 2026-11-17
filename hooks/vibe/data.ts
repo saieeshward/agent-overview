@@ -1,7 +1,7 @@
 import { atom, read } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 import type { Act, AgentNode, Costs, DecisionItem, EditItem, Finding, History, LiveEdit, MainInfo, Prices, Providers, SideLive, Stage, TurnCost, VibeLog, Written } from '../../types'
-import { blank, defaultRouting, providerOf, usageAge } from '../state'
+import { allOf, blank, defaultRouting, providerOf, usageAge } from '../state'
 import { displayAgents, displayHistory } from '../babysitter'
 import { stateOf } from '../graph'
 import { claudeTotal, costOf, priceOf, rowCost, sessionRows } from '../cost'
@@ -17,7 +17,7 @@ const live = atom({ plugin: 'agent-overview', key: 'live' } as const, null as Li
 const sideLive = atom({ plugin: 'agent-overview', key: 'sideLive' } as const, null as SideLive | null)
 const acts = atom({ plugin: 'agent-overview', key: 'acts' } as const, {} as Record<string, Act>)
 const decisions = atom({ plugin: 'agent-overview', key: 'decisions' } as const, [] as DecisionItem[])
-const providers = atom({ plugin: 'agent-overview', key: 'providers' } as const, { claude: blank(), codex: blank(), commandcode: blank(), opencode: blank(), antigravity: blank() } as Providers)
+const providers = atom({ plugin: 'agent-overview', key: 'providers' } as const, { claude: blank(), codex: blank(), commandcode: blank(), opencode: blank(), antigravity: blank(), ollama: blank() } as Providers)
 const routing = atom({ plugin: 'agent-overview', key: 'routing' } as const, defaultRouting())
 const costs = atom({ plugin: 'agent-overview', key: 'costs' } as const, { rows: [], claude: {}, agy: {} } as Costs)
 const prices = atom({ plugin: 'agent-overview', key: 'prices' } as const, { catalog: {}, overrides: {} } as Prices)
@@ -57,7 +57,7 @@ const samples: TokenSample[] = []
 export async function vibeData($: EngineInterface): Promise<VibeData> {
   const [now, m, list, changed, l, sl, active, ds, ps, r, c, pr, turns, fs, log, h, work] = await Promise.all([
     $.clock.now(), read($, main), read($, nodes), read($, edits), read($, live), read($, sideLive), read($, acts), read($, decisions),
-    read($, providers), read($, routing), read($, costs), read($, prices), read($, turnCosts), read($, findings), read($, vibe), read($, history), read($, stage),
+    read($, providers).then(allOf), read($, routing), read($, costs), read($, prices), read($, turnCosts), read($, findings), read($, vibe), read($, history), read($, stage),
   ])
   const candidates = displayAgents(list, changed).filter(n => n.kind !== 'workflow').map(n => ({ ...n, provider: n.provider ?? providerOf(n.model), state: stateOf(n, list) }))
   const agents = candidates

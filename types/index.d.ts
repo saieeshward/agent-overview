@@ -11,7 +11,7 @@ export type VibeLog = {
   combo: number; commits: number; pushes: number; best: number; phase: string
 }
 export type VibeEvent = { kind: 'provider-on' | 'provider-off' | 'tag' | 'priority' | 'handoff' | 'powerup' | 'decision'; at: number; provider?: Provider; tag?: RoutingTag; key?: string; mode?: Mode }
-export type Provider = 'claude' | 'codex' | 'commandcode' | 'opencode' | 'antigravity'
+export type Provider = 'claude' | 'codex' | 'commandcode' | 'opencode' | 'antigravity' | 'ollama'
 export type AlertKind = 'run' | 'review' | 'quota' | 'question'
 // Session totals of edited lines and files: they only grow, unlike the trimmed edits list.
 export type Written = { added: number; removed: number; files: string[] }
@@ -116,6 +116,8 @@ export type ProviderInfo = {
   usageSource?: 'live' | 'estimate' | 'desktop'
   agyQuota?: Meter[]
   error?: string
+  // Installed but not answering now (Ollama's local server is down): it takes no work until it does.
+  offline?: string
 }
 export type Providers = Record<Provider, ProviderInfo>
 export type Used = { mcp: Record<string, number>; skills: Record<string, number>; agentTypes: Record<string, number> }

@@ -16,7 +16,7 @@ import { modeBusy } from './modes'
 import { chatSettings } from './chat-settings'
 import { chatBandExtras } from './chat-surfaces'
 import type { Stage, TreeRow } from './graph'
-import { agyQuotaLine, OTHERS, PROVIDERS, blank, colorOf, defaultRouting, livePicks, move, nameOf, normalGuard, providerOf, usageAge, tagOf, withPicks, withTag } from './state'
+import { allOf, agyQuotaLine, OTHERS, PROVIDERS, blank, colorOf, defaultRouting, livePicks, move, nameOf, normalGuard, providerOf, usageAge, tagOf, withPicks, withTag } from './state'
 
 export { fit, fitStart, bar, pips, clock, LEVELS, tok } from './ui'
 
@@ -31,7 +31,7 @@ const sideLive = atom({ plugin: 'agent-overview', key: 'sideLive' } as const, nu
 const acts = atom({ plugin: 'agent-overview', key: 'acts' } as const, {} as Record<string, Act>)
 const git = atom({ plugin: 'agent-overview', key: 'git' } as const, { error: 'loading' } as GitInfo)
 const providers = atom({ plugin: 'agent-overview', key: 'providers' } as const, {
-  claude: blank(), codex: blank(), commandcode: blank(), opencode: blank(), antigravity: blank(),
+  claude: blank(), codex: blank(), commandcode: blank(), opencode: blank(), antigravity: blank(), ollama: blank(),
 } as Providers)
 const used = atom({ plugin: 'agent-overview', key: 'used' } as const, { mcp: {}, skills: {}, agentTypes: {} } as Used)
 const installed = atom({ plugin: 'agent-overview', key: 'installed' } as const, { plugins: [], mcpServers: [], skills: 0 } as Installed)
@@ -1204,7 +1204,7 @@ async function dashboard($: $, E: E, w: number, rows: number) {
   if ((await read($, ui)).view === 'prices') return pricesView($, E, w)
   const list = await displayNodes($)
   const ed = await read($, edits)
-  const all = await read($, providers)
+  const all = await read($, providers).then(allOf)
   const r = await read($, routing)
   const g = await read($, git)
   const u = await read($, ui)
@@ -1746,7 +1746,7 @@ function providerUsage(E: E, info: Providers[Provider], p: Provider, r: Routing,
 async function providerView($: $, E: E, p: Provider, w: number) {
   const r = await read($, routing)
   const u = await read($, ui)
-  const all = await read($, providers)
+  const all = await read($, providers).then(allOf)
   const m = await read($, main)
   const info = all[p]
   const color = colorOf(p)
@@ -1781,7 +1781,7 @@ async function providerView($: $, E: E, p: Provider, w: number) {
       {info.status === 'missing' && !info.meters.length ? <E.Box key={`missing:${p}`} flexDirection="row" gap={2} flexWrap="wrap" borderStyle="round" borderColor="warning" paddingX={1}>
         <E.Text color="warning" weight="bold">{info.error === NOT_INSTALLED ? `${nameOf(p)} is not installed on this Mac` : `${nameOf(p)} is not set up: ${info.error ?? 'unavailable'}`}</E.Text>
         <E.Text dimColor>no work is routed to it</E.Text>
-        <E.Button key={`recheck:${p}`} plain onPress={async () => { await recheck($, p); $.ui.toast((await read($, providers))[p].status === 'missing' ? `${nameOf(p)}: still not found` : `${nameOf(p)} found`) }}><E.Text color="suggestion">↻ check again</E.Text></E.Button>
+        <E.Button key={`recheck:${p}`} plain onPress={async () => { await recheck($, p); $.ui.toast((await read($, providers).then(allOf))[p].status === 'missing' ? `${nameOf(p)}: still not found` : `${nameOf(p)} found`) }}><E.Text color="suggestion">↻ check again</E.Text></E.Button>
       </E.Box> : null}
       {(info.status !== 'missing' || info.meters.length) && (info.meters.length || info.note || info.error) ? Card(E, `usage:${p}`, 'USAGE', 'subtle', <E.Box flexDirection="column">{meterRows(E, info.meters, w - 4, p === 'opencode' && info.usageSource !== 'live', usageAge(info, await $.clock.now()))}{info.note ? <E.Text dimColor>{info.note}</E.Text> : null}{info.error ? <E.Text color="error">{info.error}</E.Text> : null}{info.facts.length ? <E.Text dimColor wrap="truncate-end">{info.facts.slice(0, 3).join('  ·  ')}</E.Text> : null}</E.Box>) : null}
       {isClaude && info.models.some(x => x.isDefault) ? Card(E, 'chat', 'CHAT MODEL', 'claude', (
@@ -1847,7 +1847,7 @@ async function modelsTab($: $, E: E, w: number, rows: number) {
   const u = await read($, ui)
   if (u.editing) return providerView($, E, u.editing, w)
   const r = await read($, routing)
-  const all = await read($, providers)
+  const all = await read($, providers).then(allOf)
   const m = await read($, main)
   const chat = (m.model || (await $.session.model().catch(() => ''))).replace(/\[.*\]$/, '')
   const settings = (await $.settings.read().catch(() => ({}))) as Record<string, any>
@@ -2315,7 +2315,7 @@ async function settingsTab($: $, E: E) {
 
         </E.Box>
         {u.cap ? <E.Box flexDirection="row" flexWrap="wrap" gap={1}>
-          <E.Select key="cap:provider" options={PROVIDERS.map(p => ({ value: p.id, label: p.name }))} value={u.cap} onSelect={(v: Provider) => update($, ui, x => ({ ...x, cap: v }))} />
+          <E.Select key="cap:provider" options={PROVIDERS.filter(p => p.id !== 'ollama').map(p => ({ value: p.id, label: p.name }))} value={u.cap} onSelect={(v: Provider) => update($, ui, x => ({ ...x, cap: v }))} />
           <E.Input key={`capinput:${u.cap}`} value={g.caps[u.cap] ? String(g.caps[u.cap]) : ''} placeholder={`dollars ${capWindow(u.cap) === 'per chat' ? 'per chat' : 'per day'} · empty clears`} submitLabel="set" onSubmit={async (v: string) => {
             const p = u.cap!
             const n = Number(v.replace(/[$,\s]/g, ''))
@@ -2400,7 +2400,7 @@ export async function drawBand($: $, e: any) {
     const list = await displayNodes($)
     const running = list.filter(n => n.kind !== 'workflow' && stateOf(n, list) === 'running')
     const pend = (await read($, edits)).filter(x => x.review === 'pending').length
-    const ctx = (await read($, providers)).claude.meters.find(x => x.label === 'Context')
+    const ctx = (await read($, providers).then(allOf)).claude.meters.find(x => x.label === 'Context')
     const threshold = (await read($, guard)).ctxWarn
     const hot = threshold > 0 && ctx && ctx.percent >= threshold ? Math.round(ctx.percent) : 0
     const l = await read($, live)

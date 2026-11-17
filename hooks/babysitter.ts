@@ -6,8 +6,8 @@ export const BABYSITTER_MODEL = 'claude-sonnet-5-5'
 // Require delegation and a return instruction; reject any work assigned to the driver itself.
 export function babysitting(prompt: string): boolean {
   const text = prompt.replace(/\s+/g, ' ').trim()
-  const side = /\bcodex\s+exec\b|\bopencode\s+run\b|\b(?:cmd|cmdc|commandcode|command-code)(?:\s+[^;\n]*?)?\s+(?:-p|--print)\b|\bcommand-code\/dist\/index\.mjs\b[^;\n]*\s-p\b|\bCommand Code(?: CLI)?\b[^;]*\s-p\b|\bgemini_(?:bounded_task|visual_qa|media_task)\b/i.test(text)
-  const handoff = /\b(?:run|ask|hand\s+(?:off\s+)?to|delegate\s+to)\s+(?:the\s+)?(?:Codex|OpenCode|Command Code|Antigravity)\b/i.test(text)
+  const side = /\bcodex\s+exec\b|\bopencode\s+run\b|\b(?:cmd|cmdc|commandcode|command-code)(?:\s+[^;\n]*?)?\s+(?:-p|--print)\b|\bcommand-code\/dist\/index\.mjs\b[^;\n]*\s-p\b|\bCommand Code(?: CLI)?\b[^;]*\s-p\b|\bgemini_(?:bounded_task|visual_qa|media_task)\b|\bollama_run\b|\bollama\s+run\b/i.test(text)
+  const handoff = /\b(?:run|ask|hand\s+(?:off\s+)?to|delegate\s+to)\s+(?:the\s+)?(?:Codex|OpenCode|Command Code|Antigravity|Ollama)\b/i.test(text)
   const report = /\b(?:report|return|relay|summari[sz]e|wait|check what comes back)\b/i.test(text)
   const ownWork = /\b(?:also|then|yourself|directly|personally|you must|you should|you will)\b[^.!?;]{0,90}\b(?:implement|code|coding|edit|write|fix|refactor|patch|build|test)\b|\b(?:implement|code|edit|write|fix|refactor|patch|build|test)\b[^.!?;]{0,60}\b(?:yourself|personally|directly)\b/i.test(text)
   const ownTask = /(?:^|[.!?;])\s*(?:(?:also|then|please)\s+)*(?:implement|code|edit|write|fix|refactor|patch|build|test)\b/i.test(text)

@@ -222,7 +222,7 @@ test('picking a side-run box makes follow show its live changes, then its output
 
 test('OpenCode meters, chart and Models rows say their figures are estimates', async ($, on) => {
   mock.clock(on)
-  let all: Providers = { claude: blank(), codex: blank(), opencode: blank(), commandcode: blank(), antigravity: blank() }
+  let all: Providers = { claude: blank(), codex: blank(), opencode: blank(), commandcode: blank(), antigravity: blank(), ollama: blank() }
   const saved: Record<string, unknown> = {}
   const api = {
     env: { get: async (name: string) => name === 'HOME' ? '/fake' : undefined },
@@ -280,7 +280,7 @@ for (const provider of ['codex', 'opencode', 'commandcode'] as const) for (const
 for (const surface of ['terminal', 'desktop'] as const) test(`stale Command Code percentages show their age in Usage, Models and both Vibe HUDs (${surface})`, async ($, on) => {
   mock.clock(on, { now: 3 * 3600000 }); mock.store(on)
   on('session.id', () => ({ value: 'stale-usage' }))
-  const all: Providers = { claude: blank(), codex: blank(), opencode: blank(), antigravity: blank(), commandcode: { ...blank(), status: 'ok', usageAt: 0, meters: [{ label: 'Monthly', percent: 62 }] } }
+  const all: Providers = { claude: blank(), codex: blank(), opencode: blank(), antigravity: blank(), commandcode: { ...blank(), status: 'ok', usageAt: 0, meters: [{ label: 'Monthly', percent: 62 }] }, ollama: blank() }
   on('state.get', { plugin: 'agent-overview', key: 'providers' }, () => ({ value: { value: all, version: 0 } }))
   const ui = await $.ui.mount({ plugin: 'agent-overview', surface, ...PANE, props })
   {

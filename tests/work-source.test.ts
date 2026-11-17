@@ -162,7 +162,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const providers: Providers = {
       claude: { ...blank(), status: 'ok', meters: [{ label: '5-hour', percent: 25 }, { label: 'Context', percent: 72 }] },
       codex: { ...blank(), status: 'ok', meters: [{ label: 'Weekly', percent: 40 }] },
-      opencode: { ...blank(), status: 'missing' }, commandcode: { ...blank(), status: 'ok' }, antigravity: { ...blank(), status: 'ok', facts: ['90 monthly credits left'] },
+      opencode: { ...blank(), status: 'missing' }, commandcode: { ...blank(), status: 'ok' }, antigravity: { ...blank(), status: 'ok', facts: ['90 monthly credits left'] }, ollama: blank(),
     }
     on('state.get', { plugin: 'agent-overview', key: 'providers' }, () => ({ value: { value: providers, version: 1 } }))
     const routing = defaultRouting()

@@ -6,7 +6,7 @@ import { shortModel } from '../ui'
 import { DESKS, officeStatus } from './office'
 
 const { INK, PAPER } = C
-export const SHIP_TINT: Record<Provider, number> = { claude: 67, codex: 68, antigravity: 69, opencode: 70, commandcode: 71 }
+export const SHIP_TINT: Record<Provider, number> = { claude: 67, codex: 68, antigravity: 69, opencode: 70, commandcode: 71, ollama: C.lavender }
 const recent = (d: VibeData, at: number | undefined, ms = 30000) => at !== undefined && at <= d.now && d.now - at < ms
 export const SHIPS: Record<Provider, string[]> = {
   claude: CLAWD.map((row, y) => y === 4 || y === 5 ? `O${row}O` : `.${row}.`).map(row => row.replace(/O/g, '#').replace(/k/g, '.')),
@@ -14,6 +14,8 @@ export const SHIPS: Record<Provider, string[]> = {
   antigravity: ['.....#.....', '....###....', '.....#.....', '...#####...', '.#########.', '###########', '..#..#..#..'],
   opencode: ['.....#.....', '....###....', '...#####...', '..###.###..', '.#####.###.', '#######.###', '###..#.####', '#.......###'],
   commandcode: ['.....####..', '.....####..', '.....#.....', '..#######..', '.#########.', '###########', '#.#.#.#.#.#', '###########'],
+  // Not in the fleet (Ollama has no desk); kept so every provider has a ship.
+  ollama: ['..#.....#..', '..##...##..', '...#####...', '..#######..', '.#########.', '###.###.###', '.#########.', '..#.....#..'],
 }
 // The three original invader silhouettes, with two alternating leg poses.
 const INVADERS = [

@@ -234,6 +234,8 @@ export const spendBy = (c: Costs, pr: Prices, ccBase?: { day: string; value: num
     codex: sum(c.rows.filter(r => r.provider === 'codex')),
     opencode: sum(c.rows.filter(r => r.provider === 'opencode')),
     antigravity: session(c.agy, 'antigravity'),
+    // Local models run on this Mac: no bill and no quota.
+    ollama: 0,
   }
   const cc = sum(c.rows.filter(r => r.provider === 'commandcode'))
   if (ccBase && ccBase.day === today) out.commandcode = cc >= ccBase.value ? cc - ccBase.value : cc

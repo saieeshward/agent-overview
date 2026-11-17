@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import { saveStage } from '../modes'
 import type { Act, AgentNode, EditItem, Finding, GitInfo, Impl, MainInfo, Providers, Reviewer, ReviewProfile, Stage, Ui } from '../../types'
-import { blank, defaultRouting, normalGuard } from '../state'
+import { allOf, blank, defaultRouting, normalGuard } from '../state'
 import { Card, Chip, IMPACT, LEVELS, PROVIDERS, colorOf, fit, fitStart, modeControls, nameOf, plural, shortModel, submitPrompt } from '../ui'
 import type { $, E } from '../ui'
 import { DEFAULT_PROFILE, seeStage, advance, adrOf, commitPreview, commitPrompt, findingKey, fixPrompt, freshStage, implAgents, normalProfiles, prPrompt, pushPrompt, reviewPrompt, reviewerBlock, reviewerWarning, runBusy, workCaps } from './stage'
@@ -13,7 +13,7 @@ const stage = atom({ plugin: 'agent-overview', key: 'stage' } as const, null as 
 const findings = atom({ plugin: 'agent-overview', key: 'findings' } as const, [] as Finding[])
 const reviewProfiles = atom({ plugin: 'agent-overview', key: 'reviewProfiles' } as const, [] as ReviewProfile[])
 const providers = atom({ plugin: 'agent-overview', key: 'providers' } as const, {
-  claude: blank(), codex: blank(), commandcode: blank(), opencode: blank(), antigravity: blank(),
+  claude: blank(), codex: blank(), commandcode: blank(), opencode: blank(), antigravity: blank(), ollama: blank(),
 } as Providers)
 const routing = atom({ plugin: 'agent-overview', key: 'routing' } as const, defaultRouting())
 const guard = atom({ plugin: 'agent-overview', key: 'guard' } as const, normalGuard(undefined))
@@ -26,7 +26,7 @@ const acts = atom({ plugin: 'agent-overview', key: 'acts' } as const, {} as Reco
 
 export async function reviewTab($: $, E: E, w: number, rows: number) {
   E = await modeControls($, E, 'work')
-  const s = await read($, stage), u = await read($, ui), all = await read($, providers), r = await read($, routing)
+  const s = await read($, stage), u = await read($, ui), all = await read($, providers).then(allOf), r = await read($, routing)
   if (s?.at === 'ship') {
     const g = await read($, git), m = await read($, main)
     const hash = 'commit' in g ? g.commit.split(/\s/)[0] : undefined
@@ -131,7 +131,7 @@ export async function reviewTab($: $, E: E, w: number, rows: number) {
         return editing ? <E.Box key={`rev:row:${i}`} flexDirection="column" gap={1}>
           <E.Box flexDirection={w < 80 ? 'column' : 'row'} gap={1}>
             <E.Box flexDirection="row" gap={1} alignItems="center">
-            <E.Box minWidth={nameOf(a.provider).length + 4}><E.Select key={`rev:provider:${i}`} options={PROVIDERS.filter(p => p.id !== 'commandcode' && p.id !== 'opencode').map(p => ({ value: p.id, label: p.name }))} value={a.provider} onSelect={(v: Reviewer['provider']) => {
+            <E.Box minWidth={nameOf(a.provider).length + 4}><E.Select key={`rev:provider:${i}`} options={PROVIDERS.filter(p => p.id !== 'commandcode' && p.id !== 'opencode' && p.id !== 'ollama').map(p => ({ value: p.id, label: p.name }))} value={a.provider} onSelect={(v: Reviewer['provider']) => {
               const model = all[v].models[0]?.id ?? r.picks.find(p => p.provider === v)?.model ?? a.model
               return reviewer(i, { provider: v, model, effort: undefined })
             }} /></E.Box>

@@ -24,6 +24,8 @@ export const SPR: Record<Provider, { rows: string[]; map: Record<string, string>
   antigravity: { rows: ['..WWWWW..', '.WWWWWWW.', '.WVVVVVW.', '.WVvVVVW.', '.WWWWWWW.', '..BBBBB..', '.BBBwBBB.', '.BBBBBBB.', '..BB.BB..', '..W...W..'], map: { W: '#e8edf5', V: '#2f5fb3', v: '#8fb4f5', B: '#5b8ff0', w: '#ffffff' } },
   opencode: { rows: ['....P....', '...PPP...', '..PPPPP..', '.hPdddPh.', '.hPedePh.', '..PPPPP..', '.PPPPPPP.', '.PPPPPPP.', '..PP.PP..', '..d...d..'], map: { P: C.opencode, d: '#1c1530', e: '#d7caff', h: '#9ca3af' } },
   commandcode: { rows: ['...YYY...', '..YYYYY..', '.YYYYYYY.', '..sssss..', '..sksks..', '..sssss..', '.OOOOOOO.', 'OOtttttOO', '.OOO.OOO.', '.O.....O.'], map: { Y: '#f2b632', s: '#e8e6e3', k: color(OFFICE_ACCENTS.eye), O: '#d89a2e', t: '#6b4a2b' } },
+  // Ollama has no desk in the office (not one of DESKS); its llama only fills the record.
+  ollama: { rows: ['.P...P...', '.P...P...', '.PP.PP...', '.PPPPP...', '.PdPdP...', '..PPP....', '..PPPPPP.', '..PPPPPP.', '..P.P.PP.', '..P.P.P..'], map: { P: '#d9a3e6', d: '#1c1530' } },
 }
 const rect = (x: number, y: number, w: number, h: number, fill: string) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${fill}"/>`
 const sprite = (p: Provider) => SPR[p].rows.map((row, y) => [...row].map((c, x) => SPR[p].map[c] ? rect(x, y, 1, 1, SPR[p].map[c]!) : '').join('')).join('')

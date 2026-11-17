@@ -179,7 +179,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
         claude: { ...blank(), meters: [{ label: 'Context', percent: 100 }, { label: 'Weekly', percent: 40, detail: 'resets in 3h' }] },
         codex: { ...blank(), models: [{ id: 'gpt-6.1-sol', efforts: ['medium', 'xhigh'] }] },
         opencode: { ...blank(), models: [{ id: 'opencode-go/kimi-k3', efforts: ['low', 'max'] }], facts: ['$2 spent in 7 days'] },
-        commandcode: { ...blank(), facts: ['54 monthly credits left'] }, antigravity: { ...blank(), alert: 'quota hit' },
+        commandcode: { ...blank(), facts: ['54 monthly credits left'] }, antigravity: { ...blank(), alert: 'quota hit' }, ollama: blank(),
       }
       on('state.get', { plugin: 'agent-overview', key: 'providers' }, () => ({ value: { value: all, version: 1 } }))
       const ui = await $.ui.mount({ plugin: 'agent-overview', surface, ...PANE, props: props(width) })
@@ -190,7 +190,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
       const narrow = width < 80
       const mcols = narrow ? ['rank', 'model', 'effort', 'act'] : ['rank', 'model', 'prov', 'effort', 'act']
       const pcols = ['rank', 'on', 'name', 'usage', 'tag', 'act']
-      for (const [prefix, cols, rows] of [['mcol', mcols, getRouting().picks.length], ['pcol', pcols, 5]] as const) {
+      for (const [prefix, cols, rows] of [['mcol', mcols, getRouting().picks.length], ['pcol', pcols, 6]] as const) {
         for (const col of cols) {
           const boxes = tree.filter(n => keyOf(n).startsWith(`${prefix}:${col}:`))
           expect(boxes.length).toBe(rows)

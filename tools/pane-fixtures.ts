@@ -182,7 +182,7 @@ export function fixture(p: Preview): Record<string, any> {
   const agents = p.empty ? [] : d.agents.map(a => ({ ...a, kind: 'task', run: 'turn:preview', agentId: a.provider === 'claude' ? a.id : undefined, state: p.busy || p.subagent && a.provider === 'claude' ? 'running' : 'done', endedAt: p.busy ? undefined : NOW - 1000 }))
   r.order = ['codex', 'opencode', 'antigravity', 'commandcode']
   r.picks = d.agents.map(a => ({ provider: a.provider, model: a.model, effort: a.effort }))
-  r.on = { claude: true, codex: true, opencode: true, antigravity: true, commandcode: true }
+  r.on = { claude: true, codex: true, opencode: true, antigravity: true, commandcode: true, ollama: false }
   r.tags = { claude: 'main' }
   if (p.event?.kind === 'provider-off') r.on[p.event.provider!] = false
   if (p.event?.kind === 'tag') r.tags = { ...r.tags, claude: 'normal', [p.event.provider!]: p.event.tag }

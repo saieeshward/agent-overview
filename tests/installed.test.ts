@@ -63,7 +63,7 @@ test('routing leaves out providers that are not installed, and the saved choices
   const ps = Object.fromEntries(['claude', 'codex', 'opencode', 'commandcode', 'antigravity'].map(p => [p, { ...blank(), status: 'ok' }])) as Providers
   ps.codex = { ...blank(), status: 'missing' }
   ps.commandcode = { ...blank(), status: 'missing' }
-  const saved = { ...defaultRouting(), on: { claude: true, codex: true, opencode: true, commandcode: true, antigravity: true }, tags: { codex: 'main' as const } }
+  const saved = { ...defaultRouting(), on: { claude: true, codex: true, opencode: true, commandcode: true, antigravity: true, ollama: false }, tags: { codex: 'main' as const } }
   const gone = missingOf(ps)
   expect(gone.sort()).toEqual(['codex', 'commandcode'])
   const live = without(saved, gone)

@@ -5,6 +5,7 @@ import { arcade, arcadePlan, bunkerRows, SHIPS, SHIP_TINT } from '../hooks/vibe/
 import { C, CAST, FPS, PALETTE, SVG_MAX, TERMINAL_DEFAULT, toCells, toSvg } from '../hooks/vibe/engine'
 import type { Canvas, VibeData } from '../hooks/vibe/engine'
 import { FIXTURES } from '../hooks/vibe/fixtures'
+import { DESKS } from '../hooks/vibe/office'
 import { FIXTURES as LEGACY } from './arcade-fixtures'
 
 const busy = FIXTURES.busy
@@ -41,8 +42,8 @@ for (const [name, d] of [...Object.entries(FIXTURES), ...Object.entries(LEGACY)]
 }
 
 test('each provider keeps its exact distinct shape and Main uses an underline', () => {
-  expect(new Set(Object.values(SHIPS).map(r => r.join('\n'))).size).toBe(5)
-  for (const p of Object.keys(SHIPS) as Provider[]) {
+  expect(new Set(DESKS.map(p => SHIPS[p].join('\n'))).size).toBe(5)
+  for (const p of DESKS) {
     const a = busy.agents.find(a => a.provider === p)!
     const regular = arcadePlan({ ...busy, main: { ...busy.main, working: false }, agents: [a], usage: busy.usage.map(u => ({ ...u, on: u.provider === p, tag: 'normal' as const })) }).ships.find(s => s.provider === p)!
     const main = arcadePlan({ ...busy, main: { ...busy.main, working: false }, agents: [a], usage: busy.usage.map(u => ({ ...u, on: u.provider === p, tag: u.provider === p ? 'main' as const : 'normal' as const })) }).ships.find(s => s.provider === p)!
@@ -107,7 +108,7 @@ test('HUD carries score, one bold event, named quota lives and speed with only p
     expect(hud.bottom.filter(row => row.some(s => s.bold))).toHaveLength(1)
     for (const row of [...hud.top, ...hud.bottom]) {
       for (const segment of row.filter(s => s.color)) {
-        const p = (Object.keys(CAST) as Provider[]).find(p => segment.text === ({ claude: 'CLAUDE', codex: 'CODEX', antigravity: 'ANTIGRAVITY', opencode: 'OPENCODE', commandcode: 'COMMAND CODE' })[p])!
+        const p = (Object.keys(CAST) as Provider[]).find(p => segment.text === ({ claude: 'CLAUDE', codex: 'CODEX', antigravity: 'ANTIGRAVITY', opencode: 'OPENCODE', commandcode: 'COMMAND CODE', ollama: 'OLLAMA' })[p])!
         expect(p).toBeDefined(); expect(segment.color).toBe(`#${PALETTE[CAST[p]]!.toString(16)}`)
       }
       expect(row.map(s => s.text).join('').length).toBeLessThanOrEqual(w)
@@ -162,11 +163,11 @@ for (const surface of ['terminal', 'desktop'] as const) test(`arcade native HUD 
   await ui.unmount()
 })
 
-for (const provider of Object.keys(SHIPS) as Provider[]) test(`${provider} ship uses its exact tint and the rest of the scene stays monochrome`, () => {
+for (const provider of DESKS) test(`${provider} ship uses its exact tint and the rest of the scene stays monochrome`, () => {
   const a = busy.agents.find(a => a.provider === provider)!
   const d = { ...busy, main: { ...busy.main, working: false }, agents: [a], edit: null, usage: busy.usage.map(u => ({ ...u, on: u.provider === provider, tag: 'normal' as const })) }
   const ship = arcadePlan(d).ships.find(s => s.provider === provider)!, c = arcade.frames(d, { motion: 'still' })[0]!
-  const tints = { claude: 0xD97757, codex: 0x10A37F, antigravity: 0x4C8DF6, opencode: 0x8B5CF6, commandcode: 0xE0A030 }
+  const tints = { claude: 0xD97757, codex: 0x10A37F, antigravity: 0x4C8DF6, opencode: 0x8B5CF6, commandcode: 0xE0A030, ollama: 0x83769C }
   expect(PALETTE[CAST[provider]]).toBe(tints[provider])
   ship.rows.forEach((row, y) => [...row].forEach((ch, x) => {
     if (ch === '#') expect(c.px[(ship.y + y) * c.w + ship.x + x]).toBe(SHIP_TINT[provider])

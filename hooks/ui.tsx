@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, SelectOption } from 'claude-code'
 import type { Area, DecisionItem, Guard, Meter, ModelRow, Provider, Providers, Routing, Ui, VibeEvent } from '../types'
-import { agyBucket, agyJobModel, agyQuotaLine, colorOf, normalGuard, normalRouting, defaultRouting, storeRouting, usageAge, withPicks } from './state'
+import { allOf, agyBucket, agyJobModel, agyQuotaLine, colorOf, normalGuard, normalRouting, defaultRouting, storeRouting, usageAge, withPicks } from './state'
 import { savePresetRouting } from './preset-state'
 import { watchQuota } from './providers'
 
@@ -62,7 +62,7 @@ export async function saveRouting($: $, change: (r: Routing) => Routing, event?:
   const before = normalRouting(await read($, routing))
   let next = await update($, routing, r => normalRouting(change(normalRouting(r))))
   if (before.agyCodingModel !== next.agyCodingModel || before.agyVisualModel !== next.agyVisualModel || before.agyCoding !== next.agyCoding || before.agyVisual !== next.agyVisual) {
-    const info = (await read($, providers)).antigravity
+    const info = (await read($, providers).then(allOf)).antigravity
     if (info.agyQuota) {
       const thirdParty = [next.agyCodingModel, next.agyVisualModel].some(m => agyBucket(m) === 'Claude/GPT')
       await update($, providers, ps => ({ ...ps, antigravity: { ...ps.antigravity, meters: info.agyQuota!.filter(m => thirdParty || !m.label.startsWith('Claude/GPT ')) } }))
@@ -112,7 +112,7 @@ export function agyControls($: $, E: E, r: Routing, models: ModelRow[], width: n
 export function modelEfforts(p: Provider, models: ModelRow[], model: string) {
   return models.find(m => m.id === model)?.efforts ?? ({
     claude: LEVELS, codex: LEVELS, opencode: ['minimal', 'low', 'medium', 'high', 'max'],
-    commandcode: ['low', 'medium', 'high'], antigravity: [],
+    commandcode: ['low', 'medium', 'high'], antigravity: [], ollama: [],
   })[p]
 }
 
@@ -272,7 +272,7 @@ export async function saveGuard($: $, change: (g: Guard) => Guard) {
 
 export async function babysitterRow($: $, E: E, width = 32) {
   const g = normalGuard(await read($, guard)), u = await read($, ui)
-  const models = (await read($, providers)).claude?.models ?? []
+  const models = (await read($, providers).then(allOf)).claude?.models ?? []
   return SettingsRow(E, 'setting:babysitterModel', 'Babysitter model', modelPicker($, E, u, 'babysitter:model', models.filter(m => /^claude-(?:sonnet|haiku|opus)-/.test(m.id)), g.babysitterModel, model => saveGuard($, x => ({ ...x, babysitterModel: model })), width))
 }
 
@@ -346,6 +346,8 @@ export function meterRows(E: E, meters: Meter[], w: number, estimate = false, ag
 
 // How much a provider has left, from its meters, spend or credits.
 export function leftOf(E: E, info: Providers[Provider], p: Provider, n = 5, now = info.checkedAt ?? 0) {
+  // Local models have no quota: say whether the server answers.
+  if (p === 'ollama') return info.offline ? <E.Text color="warning">server down</E.Text> : <E.Text dimColor>{info.status === 'loading' ? '…' : 'free · local'}</E.Text>
   if (info.alert) return <E.Text color="error" weight="bold">quota hit</E.Text>
   const ms = info.meters.filter(m => m.label !== 'Context')
   if (ms.length) {

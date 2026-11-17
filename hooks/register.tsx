@@ -12,9 +12,9 @@ import { officeRail } from './office-rail'
 import type { EngineInterface, Register, ToolCallResult } from 'claude-code'
 
 import type { Act, AgentNode, Costs, DecisionItem, Finding, Stage, Installed, Media, Mode, EditItem, GitInfo, GrillItem, History, HistoryItem, Impl, LiveEdit, MainInfo, ModelSpeeds, Prices, Provider, Providers, Routing, SideLive, TurnCost, Ui, Used, Written } from '../types'
-import { antigravityUsage, claudeUsage, ensurePrices, loadPrices, plugins, refreshModels, refreshUsage, tokens, watchQuota } from './providers'
+import { antigravityUsage, claudeUsage, ensurePrices, loadPrices, ollamaGenerate, OLLAMA_DOWN, OLLAMA_LONG, plugins, refreshModels, refreshUsage, tokens, watchQuota } from './providers'
 import { addTokens, claudeTotal, elevenCredits, matchTurnCost, mediaReadOnly, mediaService, mediaShort, mediaText, money, outputTokens, parseAgyUsage, refreshMedia, rowCost, spendBy, zero } from './cost'
-import { agyJobModel, agyJobOn, agyModelNotice, OTHERS, blank, loadRouting, pruneStore, defaultRouting, handoffText, livePicks, nameOf, normalGuard, normalRouting, planDeny, routingText, subagentRoute, withFlags, missingOf, without } from './state'
+import { allOf, agyJobModel, agyJobOn, agyModelNotice, OTHERS, PROVIDERS, blank, isEmbedder, offlineOf, loadRouting, pruneStore, defaultRouting, handoffText, livePicks, nameOf, normalGuard, normalRouting, planDeny, routingText, subagentRoute, withFlags, missingOf, without } from './state'
 import { babysitting, babysitterModel, displayAgents } from './babysitter'
 import type { SubagentRoute } from './state'
 import { externalOf, labelOf, mine, QUOTA_TEXT, detachedCommand, sideCommand, sideMarkers, sideRuns, stateOf, stdinFileOf, taskOf, usageTail, watchKey } from './graph'
@@ -36,7 +36,7 @@ const acts = atom({ plugin: 'agent-overview', key: 'acts' } as const, {} as Reco
 const lastLive = atom({ plugin: 'agent-overview', key: 'lastLive' } as const, null as LiveEdit | null)
 const git = atom({ plugin: 'agent-overview', key: 'git' } as const, { error: 'loading' } as GitInfo)
 const providers = atom({ plugin: 'agent-overview', key: 'providers' } as const, {
-  claude: blank(), codex: blank(), commandcode: blank(), opencode: blank(), antigravity: blank(),
+  claude: blank(), codex: blank(), commandcode: blank(), opencode: blank(), antigravity: blank(), ollama: blank(),
 } as Providers)
 const used = atom({ plugin: 'agent-overview', key: 'used' } as const, { mcp: {}, skills: {}, agentTypes: {} } as Used)
 const main = atom({ plugin: 'agent-overview', key: 'main' } as const, { model: '' } as MainInfo)
@@ -65,6 +65,7 @@ const GRILL_TOOL = 'mcp__agent-overview__grill_log'
 const QA_TOOL = 'mcp__agent-overview__qa_log'
 const DECISION_TOOL = 'mcp__agent-overview__decision_log'
 const REVIEW_TOOL = 'mcp__agent-overview__review_log'
+const OLLAMA_TOOL = 'mcp__agent-overview__ollama_run'
 
 export { providerOf as family } from './state'
 
@@ -355,14 +356,21 @@ async function overCaps($: EngineInterface) {
     return cap > 0 && s !== undefined ? [{ p, spent: s, cap }] : []
   })
 }
-// The routing as it can be followed here: providers that are not installed take no work.
+// The routing as it can be followed here: providers that are not installed, or not running, take no work.
 async function liveRouting($: EngineInterface) {
-  return without(await read($, routing), missingOf(await read($, providers)))
+  const ps = await read($, providers).then(allOf)
+  return without(await read($, routing), [...missingOf(ps), ...offlineOf(ps)])
 }
+// `routing` is what the model is told; `seen`, the same without live speeds, is what decides whether it is told again.
 async function currentPrompt($: EngineInterface) {
   const g = await read($, guard)
+  const ps = await read($, providers).then(allOf)
+  const r = await read($, routing)
+  const caps = await pastCaps($)
+  const opts = { ...g, missing: missingOf(ps), down: offlineOf(ps), ollamaModels: (ps.ollama?.models ?? []).map(m => m.id), claudeModels: ps.claude?.models.filter(m => m.isDefault) }
   return {
-    routing: routingText(await read($, routing), {}, await pastCaps($), { ...g, missing: missingOf(await read($, providers)), claudeModels: (await read($, providers)).claude?.models.filter(m => m.isDefault) }, await read($, modelSpeeds)),
+    routing: routingText(r, {}, caps, opts, await read($, modelSpeeds)),
+    seen: routingText(r, {}, caps, opts),
     work: workText((await read($, ui)).area, await read($, stage), g.work, await read($, impl)),
   }
 }
@@ -416,7 +424,7 @@ let ctxWarned = false
 async function warnContext($: EngineInterface) {
   const threshold = (await read($, guard)).ctxWarn
   if (!threshold) { ctxWarned = false; return }
-  const ctx = (await read($, providers)).claude.meters.find(m => m.label === 'Context')
+  const ctx = (await read($, providers).then(allOf)).claude.meters.find(m => m.label === 'Context')
   if (!ctx) return
   if (ctx.percent <= threshold - 10) ctxWarned = false
   else if (ctx.percent >= threshold && !ctxWarned) {
@@ -571,6 +579,53 @@ async function changesSince($: EngineInterface, snap: NonNullable<Awaited<Return
 }
 
 const bump = (rec: Record<string, number>, key: string) => ({ ...rec, [key]: (rec[key] ?? 0) + 1 })
+
+// The model the owner allowed (or named in the call) for a local Ollama run, or why there is none.
+export function ollamaPick(r: Routing, installed: string[], asked?: string): { model: string } | { deny: string } {
+  const chat = installed.filter(m => !isEmbedder(m))
+  if (asked && isEmbedder(asked)) return { deny: `${asked} is an embedding model: it cannot take a task.${chat.length ? ` Use ${chat.join(', ')}.` : ''}` }
+  const allowed = r.picks.filter(x => x.provider === 'ollama' && !isEmbedder(x.model)).map(x => x.model)
+  const usable = allowed.length ? allowed.filter(m => !installed.length || installed.includes(m)) : chat
+  if (asked) {
+    if (installed.length && !installed.includes(asked)) return { deny: `${asked} is not installed in Ollama. Installed: ${chat.join(', ') || 'none'}.` }
+    if (allowed.length && !allowed.includes(asked)) return { deny: `The owner allows only ${allowed.join(', ')} on Ollama.` }
+    return { model: asked }
+  }
+  return usable[0] ? { model: usable[0] } : { deny: 'No Ollama chat model is installed or allowed: pull one with `ollama pull <model>`, or pick one in the agent panel.' }
+}
+
+// A local generation through Ollama's API: tracked like a side run, free, with its real speed recorded.
+async function ollamaRun($: EngineInterface, e: Loose): Promise<ToolCallResult> {
+  const r = await read($, routing)
+  const info = (await read($, providers).then(allOf)).ollama ?? blank()
+  const panel = "(set by the owner in the agent panel's Routing tab)"
+  if (r.role === 'claude') return { deny: `Ollama is paused: Claude only ${panel}.` }
+  if (!r.on.ollama) return { deny: `Ollama is turned off ${panel}.` }
+  if (info.status === 'missing') return { deny: 'Ollama is not installed on this Mac.' }
+  if (info.offline) return { deny: `Ollama's ${OLLAMA_DOWN}: ask the owner to open the Ollama app, or hand the task to another provider.` }
+  const prompt = typeof e.prompt === 'string' ? e.prompt : ''
+  if (!prompt.trim()) return { deny: 'prompt is empty: put the whole task and its input in prompt.' }
+  const pick = ollamaPick(r, info.models.map(m => m.id), typeof e.model === 'string' && e.model.trim() ? e.model.trim() : undefined)
+  if ('deny' in pick) return pick
+  const system = typeof e.system === 'string' && e.system.trim() ? e.system : undefined
+  const long = e.long === true || prompt.length > OLLAMA_LONG
+  const parentRow = e.agentId ? (await read($, nodes)).find(n => n.agentId === e.agentId) : undefined
+  const node: AgentNode = {
+    id: e.tool_use_id, state: 'running', steps: 0, startedAt: await $.clock.now(), parentId: e.agentId, parentNode: parentRow?.id, run: parentRow?.run ?? mainTurn,
+    label: String(e.description ?? '') || labelOf(prompt) || 'Ollama run', kind: 'Ollama', model: pick.model, provider: 'ollama', input: clip(prompt, 20000),
+  }
+  return track($, node, async (): Promise<ToolCallResult> => {
+    try {
+      const out = await ollamaGenerate($, pick.model, prompt, { system, long })
+      return { result: out.text || '(the model returned no text)' }
+    } catch (err) {
+      const msg = String((err as Error)?.message ?? err).slice(0, 300)
+      // A refused connection means the server stopped: look again so routing says so.
+      if (/fetch|connect|refused|no answer/i.test(msg)) void refreshUsage($, 'ollama').catch(() => {})
+      return { deny: `Ollama run on ${pick.model} failed: ${msg}` }
+    }
+  })
+}
 
 type Loose = { tool: string; tool_use_id: string; agentId?: string; [arg: string]: unknown }
 
@@ -747,6 +802,8 @@ export const register: Register = on => {
   registerChatLook(on)
   registerChatSurfaces(on)
   on('session.start', async ($, e, next) => {
+    // State outlives a reload: a provider added since (Ollama) needs its entry before anything reads it.
+    await update($, providers, all => PROVIDERS.every(p => all[p.id]) ? all : { ...Object.fromEntries(PROVIDERS.map(p => [p.id, blank()])), ...all } as Providers)
     await $.command.register({ name: 'default', description: 'Open the Agent panel' })
     await $.command.register({ name: 'overview', description: 'Open the Agent panel (alias)' })
     await $.tool.register({
@@ -791,6 +848,26 @@ export const register: Register = on => {
         type: 'object',
         properties: { file: { type: 'string' }, line: { type: 'integer' }, severity: { type: 'string', enum: ['high', 'medium', 'low'] }, text: { type: 'string' }, by: { type: 'string' } },
         required: ['file', 'severity', 'text', 'by'],
+      },
+    })
+    await $.tool.register({
+      name: 'ollama_run',
+      isDeferred: false,
+      description:
+        'Run one prompt on a local Ollama model on this Mac and get its text back. Free and private; about 20 tokens a second. ' +
+        'Only for small text jobs: quick summaries, commit messages, diff summaries, log triage, explain-this-code, extracting fields from private briefs. ' +
+        'Not for design, multi-file changes, creative writing or anything agentic: the model has no tools and cannot read files, so put everything it needs in prompt. ' +
+        'Works only while the owner has Ollama on in the agent panel and its local server is running.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          prompt: { type: 'string', description: 'The whole task, with any text, diff or log it needs pasted in' },
+          model: { type: 'string', description: 'An installed Ollama model, as the routing lists it; left out, the first allowed one' },
+          system: { type: 'string', description: 'Optional system instruction, such as the output format' },
+          long: { type: 'boolean', description: 'True for a long input: uses a 16K context window instead of 8K' },
+          description: { type: 'string', description: 'A few words for the agent panel' },
+        },
+        required: ['prompt'],
       },
     })
     void $.session.model().then(model => update($, main, m => ({ ...m, model })))
@@ -873,10 +950,10 @@ export const register: Register = on => {
   on('prompt.compose', async ($, e, next) => {
     const composed = await next(e)
     if (e.traits.includes('bare')) return composed
-    const { routing: text, work } = await currentPrompt($)
+    const { routing: text, seen, work } = await currentPrompt($)
     const sessionId = await $.session.id()
     // A resumed chat still carries its recorded section and any later turn overrides.
-    if (!await lastPrompt($, sessionId)) await rememberPrompt($, { sessionId, routing: text, work })
+    if (!await lastPrompt($, sessionId)) await rememberPrompt($, { sessionId, routing: seen, work })
     const t = await read($, toggles)
     const switches = [forcedText(t), offText(t)].filter(Boolean).join('\n')
     return {
@@ -893,12 +970,13 @@ export const register: Register = on => {
     if (e.isMeta || !(['composer', 'bridge', 'sdk', 'auto-continuation'].includes(e.origin.kind) || e.origin.kind === 'plugin' && (e.origin.asUser || e.origin.name === 'agent-overview'))) return next(e)
     const sessionId = await $.session.id(), previous = await lastPrompt($, sessionId), current = await currentPrompt($)
     const context: string[] = []
-    if (previous?.routing !== current.routing) context.push(`Delegation routing changed (overrides the earlier routing section):\n${current.routing}`)
+    // Live speeds move with every run: only a change to the routing itself sends it again.
+    if (previous?.routing !== current.seen) context.push(`Delegation routing changed (overrides the earlier routing section):\n${current.routing}`)
     if (previous?.work !== current.work) context.push(`Mode instructions changed (overrides the earlier Work/Vibe mode section):\n${current.work || 'Default mode. No Work stages or Vibe instructions apply.'}`)
     if (!context.length) return next(e)
     const result = await next({ ...e, context: [...(e.context ?? []), ...context] })
     // A blocked prompt or context removed by another hook was never delivered.
-    if (result.drop === undefined && context.every(text => result.context?.includes(text))) await rememberPrompt($, { sessionId, ...current })
+    if (result.drop === undefined && context.every(text => result.context?.includes(text))) await rememberPrompt($, { sessionId, routing: current.seen, work: current.work })
     return result
   })
 
@@ -1189,6 +1267,7 @@ export const register: Register = on => {
       await logDecision($, item)
       return { result: 'noted' }
     }
+    if (e.tool === OLLAMA_TOOL) return ollamaRun($, e)
     if (e.tool === QA_TOOL || e.tool === GRILL_TOOL) {
       if ((await read($, ui)).area === 'vibe') return { result: 'QA logging suppressed in Vibe mode' }
       const item: GrillItem = { question: String(e.question ?? ''), answer: String(e.answer ?? ''), kind: e.kind === 'instruction' ? 'instruction' : 'answer', at: await $.clock.now() }
@@ -1222,7 +1301,7 @@ export const register: Register = on => {
     let ran
     const r = await read($, routing)
     const refuse = (p: Provider, why: string) => {
-      const alt = r.order.find(q => r.on[q] && q !== p && !(q === 'antigravity' && !agyJobOn(r, 'coding')))
+      const alt = r.order.find(q => r.on[q] && q !== p && q !== 'ollama' && !(q === 'antigravity' && !agyJobOn(r, 'coding')))
       return { deny: `${nameOf(p)} ${why} (set by the owner in the agent panel's Routing tab). ${alt ? `Use ${nameOf(alt)} instead, or` : 'Use'} a Claude subagent.` }
     }
     const parentRow = e.agentId ? (await read($, nodes)).find(n => n.agentId === e.agentId) : undefined
@@ -1246,7 +1325,7 @@ export const register: Register = on => {
       if (ran.isError && /quota|RESOURCE_EXHAUSTED|429|rate.?limit/i.test(text)) {
         const alert = `quota hit ${/resets? (?:in|after) ([\dhms.]+)/i.exec(text)?.[1] ? `· resets in ${/resets? (?:in|after) ([\dhms.]+)/i.exec(text)?.[1]}` : 'just now'}`
         await antigravityUsage($)
-        if ((await read($, providers)).antigravity.usageSource !== 'live') await update($, providers, all => ({ ...all, antigravity: { ...all.antigravity, alert } }))
+        if ((await read($, providers).then(allOf)).antigravity.usageSource !== 'live') await update($, providers, all => ({ ...all, antigravity: { ...all.antigravity, alert } }))
         await watchQuota($)
       } else if (!ran.isError) {
         void antigravityUsage($).then(() => watchQuota($))
@@ -1262,7 +1341,7 @@ export const register: Register = on => {
         const pick = picks.find(x => x.model === ext.model) ?? picks[0]
         const detached = e.run_in_background !== true && detachedCommand(String(e.command ?? ''))
         const command = withFlags(String(e.command ?? ''), ext.provider, { ...pick, run: detached ? base.id : undefined, disable: (await read($, guard)).codexImages === 'off' ? ['image_generation'] : undefined })
-        const model = ext.model ?? pick?.model ?? r.models[ext.provider][0] ?? (await read($, providers))[ext.provider].current ?? nameOf(ext.provider)
+        const model = ext.model ?? pick?.model ?? r.models[ext.provider][0] ?? (await read($, providers).then(allOf))[ext.provider].current ?? nameOf(ext.provider)
         const label = String(e.description ?? nameOf(ext.provider))
         const home = await $.env.get('HOME').catch(() => undefined) ?? ''
         const dir = reviewCwd(String(e.command ?? ''), ext.provider, home)
@@ -1275,11 +1354,12 @@ export const register: Register = on => {
         if (snap && !detached) await changesSince($, snap, { model, provider: ext.provider }, base.id)
         const out = `${(ran as { text?: string }).text ?? ''}${typeof ran.result === 'string' ? ran.result : JSON.stringify(ran.result ?? '')}`.slice(-1500)
         // A successful run's answer can mention rate limits; only a failed one is a quota hit (the usage refresh catches the rest).
-        if (ran.isError && QUOTA_TEXT.test(out)) {
-          await update($, providers, all => ({ ...all, [ext.provider]: { ...all[ext.provider], alert: 'quota hit · its run said so' } }))
+        // A local model has no quota to run out of.
+        if (ran.isError && ext.provider !== 'ollama' && QUOTA_TEXT.test(out)) {
+          await update($, providers, all => ({ ...all, [ext.provider]: { ...blank(), ...all[ext.provider], alert: 'quota hit · its run said so' } }))
           await watchQuota($)
         } else if (!ran.isError && !ran.deny) {
-          await update($, providers, all => ({ ...all, [ext.provider]: { ...all[ext.provider], alert: all[ext.provider].alert === 'quota hit · its run said so' ? undefined : all[ext.provider].alert } }))
+          await update($, providers, all => ({ ...all, [ext.provider]: { ...blank(), ...all[ext.provider], alert: all[ext.provider]?.alert === 'quota hit · its run said so' ? undefined : all[ext.provider]?.alert } }))
         }
         await watchQuota($)
         void refreshUsage($, ext.provider).then(() => watchQuota($)).catch(() => {})
@@ -1397,7 +1477,7 @@ export const register: Register = on => {
   on('ui.render', { component: 'PromptHint', surface: 'terminal' }, async ($, e, next) => {
     if (await contextHint($)) return next(e)
     if (!(await read($, guard)).usageTail) return next(e)
-    const tail = usageTail(await read($, providers), await read($, routing), await $.clock.now())
+    const tail = usageTail(await read($, providers).then(allOf), await read($, routing), await $.clock.now())
     return tail ? next({ ...e, props: { ...e.props, tail } }) : next(e)
   })
 

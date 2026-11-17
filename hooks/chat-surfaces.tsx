@@ -3,7 +3,7 @@ import type { EngineInterface, On } from 'claude-code'
 import type { Act, AgentNode, AlertKind, ChatSurfaceState, DecisionItem, EditItem, Finding, MainInfo, Providers, Routing, SideLive, Stage, Ui } from '../types'
 import { babysitterDrivers, displayAgents } from './babysitter'
 import { stateOf, watchKey } from './graph'
-import { agyJobOn, agyQuotaLine, routingHow, PROVIDERS, blank, colorOf, defaultRouting, nameOf, normalGuard, providerOf, tagOf, missingOf, without } from './state'
+import { allOf, agyJobOn, agyQuotaLine, routingHow, PROVIDERS, blank, colorOf, defaultRouting, nameOf, normalGuard, providerOf, tagOf, missingOf, without } from './state'
 import { Chip, clock, fit, saveGuard, shortModel, tableOf } from './ui'
 import type { $, E } from './ui'
 import { applyPreset } from './presets'
@@ -41,7 +41,7 @@ export async function contextHint($: EngineInterface): Promise<string | undefine
   if (!normalGuard(await read($, guard)).chat.hint) return
   const u = await read($, ui), s = await read($, stage)
   if (u.area === 'work' && (!s || s.at === 'plan')) return 'plan locked · advance in panel'
-  const ps = await read($, providers), left = claudeLeft(ps)
+  const ps = await read($, providers).then(allOf), left = claudeLeft(ps)
   if (left !== undefined && left < 20 && handoff(await read($, routing), ps, await workCaps($))) return `Claude ${Math.round(left)}% left · /handover`
   const high = u.area === 'work' && s?.at === 'review' ? (await read($, findings)).filter(f => f.severity === 'high' && !f.dismissed).length : 0
   if (high) return `review · ${high} high finding${high === 1 ? '' : 's'}`
@@ -53,7 +53,7 @@ export async function chatBandExtras($: $, E: E, width: number) {
   const list = displayAgents(await read($, nodes), await read($, edits))
   const running = list.filter(n => side(n) && stateOf(n, list) === 'running')
   const done = list.filter(n => side(n) && stateOf(n, list) !== 'running' && n.endedAt !== undefined && now >= n.endedAt && now - n.endedAt < 20000)
-  const ps = await read($, providers), r = await read($, routing), u = await read($, ui)
+  const ps = await read($, providers).then(allOf), r = await read($, routing), u = await read($, ui)
   const left = claudeLeft(ps), low = g.stripQuota && left !== undefined && left < 20
   const candidate = low ? handoff(r, ps, await workCaps($)) : undefined
   const undo = g.stripQuota && u.vibeUndo && now < u.vibeUndo.until
@@ -91,8 +91,9 @@ export function mentionSuggestions(r: Routing, token: string) {
 }
 export function usageLines(ps: Providers, r: Routing) {
   return PROVIDERS.map(({ id, name }) => {
-    const info = ps[id], meters = info.meters.filter(m => m.label !== 'Context')
+    const info = ps[id] ?? blank(), meters = info.meters.filter(m => m.label !== 'Context')
     if (info.status === 'missing') return `${name}: ${info.error && info.error !== NOT_INSTALLED ? `not set up · ${oneLine(info.error)}` : NOT_INSTALLED}`
+    if (id === 'ollama') return `${name}: free · no quota${info.offline ? ` · ${info.offline}` : ''}${!r.on[id] ? ' · off' : ''}`
     const quota = meters.map(m => `${m.label} ${Number(Math.max(0, 100 - m.percent).toFixed(6))}% left${m.detail ? ` · ${oneLine(m.detail)}` : ''}`).join(' · ') || 'quota not reported'
     return `${name}: ${quota}${info.usageSource && info.usageSource !== 'live' ? ` · ${info.usageSource}` : ''}${r.paused?.[id] ? ' · paused' : !r.on[id] ? ' · off' : ''}${id === 'antigravity' && agyQuotaLine(r) ? ` · ${agyQuotaLine(r)}` : ''}${info.alert ? ` · ${oneLine(info.alert)}` : ''}`
   }).join('\n')
@@ -170,7 +171,7 @@ export function registerChatSurfaces(on: On) {
   on('prompt.autocomplete', { token: /^@/ }, async ($, e, next) => {
     const result = await next(e)
     if (!normalGuard(await read($, guard)).chat.mentions) return result
-    return { suggestions: [...result.suggestions, ...mentionSuggestions(without(await read($, routing), missingOf(await read($, providers))), e.token)] }
+    return { suggestions: [...result.suggestions, ...mentionSuggestions(without(await read($, routing), missingOf(await read($, providers).then(allOf))), e.token)] }
   })
   on('prompt.mention', async ($, e, next) => {
     if (normalGuard(await read($, guard)).chat.mentions && Object.hasOwn(MENTIONS, e.mention.toLowerCase())) return { type: null }
@@ -228,7 +229,7 @@ export function registerChatSurfaces(on: On) {
     }
     if (e.command === 'usage') {
       await refreshUsage($, undefined, true).then(() => watchQuota($)).catch(() => {})
-      return { text: usageLines(await read($, providers), await read($, routing)) }
+      return { text: usageLines(await read($, providers).then(allOf), await read($, routing)) }
     }
     return { text: (await read($, decisions)).slice(-5).map(d => `${oneLine(d.decision)}${d.why ? ` · ${oneLine(d.why)}` : ''}`).join('\n') || 'No decisions.' }
   })
@@ -251,12 +252,12 @@ export function registerChatSurfaces(on: On) {
     return result
   })
   on('state.set', { plugin: 'agent-overview', key: 'providers' }, async ($, e, next) => {
-    const before = e.previous ?? await read($, providers), result = await next(e)
+    const before = allOf(e.previous ?? await read($, providers)), result = await next(e)
     if (result.value?.isSet) for (const { id, name } of PROVIDERS) {
       if (id === 'antigravity' && e.value[id].agyQuota) {
         const r = await read($, routing), line = agyQuotaLine({ ...r, agyQuota: e.value[id].agyQuota })
         if (line && line !== agyQuotaLine({ ...r, agyQuota: before[id].agyQuota })) await alert($, 'quota', `${name}: ${line}`)
-      } else if (!exhausted(before[id]) && exhausted(e.value[id])) await alert($, 'quota', `${name} is out of quota`)
+      } else if (e.value[id] && !exhausted(before[id]) && exhausted(e.value[id])) await alert($, 'quota', `${name} is out of quota`)
     }
     return result
   })

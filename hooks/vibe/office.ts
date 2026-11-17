@@ -6,7 +6,8 @@ import { fit, fitStart, shortModel } from '../ui'
 
 export const DESKS: Provider[] = ['claude', 'codex', 'antigravity', 'opencode', 'commandcode']
 export const OFFICE_W = 160, OFFICE_H = 80
-export const DESK_X: Record<Provider, number> = { claude: 3, codex: 39, antigravity: 69, opencode: 99, commandcode: 129 }
+// Ollama is not one of DESKS: a local run's hover sits at OpenCode's bay rather than off the canvas.
+export const DESK_X: Record<Provider, number> = { claude: 3, codex: 39, antigravity: 69, opencode: 99, commandcode: 129, ollama: 99 }
 const deskWidth = (p: Provider) => p === 'claude' ? 33 : p === 'opencode' ? 26 : 28
 const recent = (d: VibeData, at: number | undefined, ms = 30000) => at !== undefined && at <= d.now && d.now - at < ms
 const agent = (d: VibeData, p: Provider) => d.agents.find(a => a.provider === p && a.state === 'running') ?? d.agents.filter(a => a.provider === p).sort((a, b) => (b.endedAt ?? b.startedAt ?? 0) - (a.endedAt ?? a.startedAt ?? 0))[0]
@@ -46,6 +47,13 @@ export const MASCOTS: Record<Provider, string[]> = {
     '...#llllll#....', '...#l#ll#l#....', '...#llllll#....', '....######.....', '..##aaaaaa##...',
     '.#aaaaaaaaaa#..', '#aa#aaaaaa#aa#.', '#aa#aaaaaa#aa#.', '.#llllllllll#..', '..#aa#ll#aa#...',
     '..#aa####aa#...', '..####..####...',
+  ],
+  // Drawn only in the Crew card: Ollama has no desk in the office.
+  ollama: [
+    '..##....##.....', '..#a#..#a#.....', '..#a#..#a#.....', '..#aa##aa#.....', '.#aaaaaaaa#....',
+    '.#a#aaaa#a#....', '.#aaaaaaaa#....', '..#aallaa#.....', '...#aaaa#......', '...#aaaa#......',
+    '...#aaaa######.', '...#aaaaaaaaa#.', '..#aaaaaaaaaa#.', '..#aaaaaaaaaa#.', '...#a#aa#a#a#..',
+    '...#a#..#a#a#..', '...###..######.',
   ],
 }
 export function officeActor(c: Canvas, d: VibeData, p: Provider, f: number) {

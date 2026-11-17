@@ -48,7 +48,7 @@ export const rounded = (k: keyof typeof TURN, c: string, bg: string) => `<svg xm
 // Sprite chips: the provider bobbing, a blinking prompt or a file, then the word in mono.
 export type Kind = 'mention' | 'command' | 'file'
 export type Token = { kind: Kind; text: string; p?: Provider }
-export const LIGHT: Record<Provider, string> = { claude: '#f0a58a', codex: '#5fd0ac', antigravity: '#9ac8f5', opencode: '#c4b0ff', commandcode: '#f2c46b' }
+export const LIGHT: Record<Provider, string> = { claude: '#f0a58a', codex: '#5fd0ac', antigravity: '#9ac8f5', opencode: '#c4b0ff', commandcode: '#f2c46b', ollama: '#e9b8f0' }
 export const TK = { command: { c: '#f2c46b', s: '#e0a030' }, file: { c: '#9ac8f5', s: '#4c8df6' } }
 export const tint = (t: Token) => t.kind === 'mention' ? { c: LIGHT[t.p!], s: C[t.p!] } : TK[t.kind]
 export const chipWidth = (text: string) => 26 + Math.ceil(text.length * 7.22)

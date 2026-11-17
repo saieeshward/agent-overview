@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import { fixture, NOW } from '../tools/pane-fixtures'
-import { routingText, withTag } from '../hooks/state'
+import { routingText, withPicks, withTag } from '../hooks/state'
 import { workText } from '../hooks/work/stage'
 
 function setup(on: On) {
@@ -102,4 +102,26 @@ test('background notifications do not consume an update needed by the next owner
   const button = await $.prompt.submit({ text: 'Implement', wait: false, origin: { kind: 'plugin', name: 'agent-overview' } })
   expect(button.context!.join('\n')).toContain('Turned off, never use: Command Code')
   expect((await $.prompt.submit({ text: 'continue', ...user })).context).toBeUndefined()
+})
+
+test('live model speeds alone never re-send the routing; a routing change sends it with the speeds', async ($, on) => {
+  const { state, store } = setup(on)
+  state.routing = withPicks(state.routing, [{ provider: 'codex', model: 'gpt-6.1-sol' }])
+  state.modelSpeeds = { 'gpt-6.1-sol': [{ outputTokens: 400, milliseconds: 10000 }] }
+  await $.prompt.compose(compose)
+  const submit = () => $.prompt.submit({ text: 'continue', ...user })
+  expect((await submit()).context).toBeUndefined()
+  for (const outputTokens of [900, 250]) {
+    state.modelSpeeds = { 'gpt-6.1-sol': [{ outputTokens, milliseconds: 10000 }] }
+    expect((await submit()).context).toBeUndefined()
+  }
+  state.modelSpeeds = {}
+  expect((await submit()).context).toBeUndefined()
+  state.modelSpeeds = { 'gpt-6.1-sol': [{ outputTokens: 600, milliseconds: 10000 }] }
+  state.routing = { ...state.routing, on: { ...state.routing.on, commandcode: false } }
+  const sent = (await submit()).context!.join('\n')
+  expect(sent).toContain('Turned off, never use: Command Code')
+  expect(sent).toContain('gpt-6.1-sol on Codex, 60 tok/s')
+  expect(store['deliveredPrompt:delivery'].routing).not.toContain('tok/s')
+  expect((await submit()).context).toBeUndefined()
 })

@@ -97,7 +97,7 @@ test('RGBA exports nearest-neighbor pixels and opaque alpha at integer scale', (
   expect([...rgba.slice(8, 12)]).toEqual([0x10, 0xA3, 0x7F, 255])
   expect([...rgba.slice(16, 20)]).toEqual([...rgba.slice(0, 4)])
   expect(Object.entries(C)).toHaveLength(46)
-  expect(CAST).toEqual({ claude: C.claude, codex: C.codex, antigravity: C.antigravity, opencode: C.opencode, commandcode: C.commandcode })
+  expect(CAST).toEqual({ claude: C.claude, codex: C.codex, antigravity: C.antigravity, opencode: C.opencode, commandcode: C.commandcode, ollama: C.lavender })
 })
 
 test('SVG merges runs vertically, overlays frame deltas, animates slots and escapes titles', () => {

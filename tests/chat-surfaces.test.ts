@@ -14,7 +14,7 @@ function setup(on: On, initial: State = {}) {
   const state: State = {
     ui: { tab: 'settings', pick: 'claude' }, main: { model: 'claude-opus-4-6' },
     routing: withPicks(defaultRouting(), [{ provider: 'codex', model: 'gpt-6.1-sol', effort: 'xhigh' }, { provider: 'opencode', model: 'open/model', effort: 'high' }, { provider: 'commandcode', model: 'cmd-model', effort: 'low' }, { provider: 'antigravity', model: 'gemini-model' }]),
-    providers: { claude: { ...blank(), status: 'ok' }, codex: { ...blank(), status: 'ok' }, opencode: { ...blank(), status: 'ok' }, commandcode: { ...blank(), status: 'ok' }, antigravity: { ...blank(), status: 'ok' } },
+    providers: { claude: { ...blank(), status: 'ok' }, codex: { ...blank(), status: 'ok' }, opencode: { ...blank(), status: 'ok' }, commandcode: { ...blank(), status: 'ok' }, antigravity: { ...blank(), status: 'ok' }, ollama: blank() },
     guard: normalGuard(undefined), nodes: [], edits: [], decisions: [], findings: [],
     chatSurface: { editVersion: 0, alerts: {} }, ...initial,
   }
@@ -294,7 +294,7 @@ test('preset, guard, usage and decisions commands use shared state', async ($, o
   expect((await $.command.run({ ...commandOrigin, command: 'guard', args: 'bad' })).text).toBe('Use /guard warn|enforce|off.')
   state.providers!.claude.meters = [{ label: '5h', percent: 87.25, detail: 'resets in 2h' }]
   expect(usageLines(state.providers!, state.routing!)).toContain('Claude: 5h 12.75% left · resets in 2h')
-  expect((await $.command.run({ ...commandOrigin, command: 'usage', args: '' })).text?.split('\n')).toHaveLength(5)
+  expect((await $.command.run({ ...commandOrigin, command: 'usage', args: '' })).text?.split('\n')).toHaveLength(6)
   state.decisions = Array.from({ length: 7 }, (_, i) => ({ decision: `Choice ${i}`, why: 'Reason', impact: 'low', at: NOW + i }))
   expect((await $.command.run({ ...commandOrigin, command: 'decisions', args: '' })).text).toBe([2, 3, 4, 5, 6].map(i => `Choice ${i} · Reason`).join('\n'))
 })

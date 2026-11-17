@@ -82,6 +82,10 @@ export { usageAge } from './graph'
 
 export const blank = (): ProviderInfo => ({ status: 'loading', meters: [], facts: [], models: [] })
 
+// Every provider has an entry, those added since the state was written (Ollama) included.
+export const allOf = <T extends Partial<Record<Provider, ProviderInfo>>>(ps: T): T & Record<Provider, ProviderInfo> =>
+  PROVIDERS.every(p => ps?.[p.id]) ? ps as T & Record<Provider, ProviderInfo> : { ...Object.fromEntries(PROVIDERS.map(p => [p.id, blank()])), ...ps } as T & Record<Provider, ProviderInfo>
+
 // Claude first, then the side subscriptions. Colours read on light and dark themes alike.
 export const PROVIDERS: { id: Provider; name: string; short: string; hotkey: string; color: string }[] = [
   { id: 'claude', name: 'Claude', short: 'Claude', hotkey: 'c', color: 'claude' },
@@ -89,12 +93,20 @@ export const PROVIDERS: { id: Provider; name: string; short: string; hotkey: str
   { id: 'commandcode', name: 'Command Code', short: 'Cmd', hotkey: 'm', color: '#B8860B' },
   { id: 'opencode', name: 'OpenCode', short: 'OpenCode', hotkey: 'o', color: '#8B5CF6' },
   { id: 'antigravity', name: 'Antigravity', short: 'Agy', hotkey: 'g', color: '#4285F4' },
+  { id: 'ollama', name: 'Ollama (local)', short: 'Ollama', hotkey: 'l', color: '#C026D3' },
 ]
-export const OTHERS: Provider[] = ['antigravity', 'opencode', 'commandcode', 'codex']
+export const OTHERS: Provider[] = ['antigravity', 'opencode', 'commandcode', 'codex', 'ollama']
+
+// Ollama runs on this Mac: free and private, for small text jobs only. Embedding models never take tasks.
+export const OLLAMA_JOBS = 'free, private, local: quick summaries, commit messages, diff summaries, log triage, explain-this-code, extracting fields from private briefs. Not for design, multi-file changes, creative writing or anything agentic.'
+export const isEmbedder = (model: string) => /embed/i.test(model)
+// Local model ids are name:tag ("qwen2.5:7b"), never provider/model.
+export const isLocalModel = (model: string) => /^ollama\//i.test(model) || /^[a-z0-9][\w.-]*:[\w.-]+$/i.test(model)
 
 // Which provider a model id belongs to, from the name alone.
 export const providerOf = (model: string): Provider =>
-  /gemini|antigravity|agy/i.test(model) ? 'antigravity'
+  isLocalModel(model) ? 'ollama'
+  : /gemini|antigravity|agy/i.test(model) ? 'antigravity'
     : /opencode|kimi|deepseek|glm|qwen|mimo|grok/i.test(model) ? 'opencode'
       : /command/i.test(model) ? 'commandcode'
         : /codex|gpt|\bo\d/i.test(model) ? 'codex'
@@ -135,8 +147,9 @@ export const defaultRouting = (): Routing => ({
   optimize: 'quality',
   adversary: null,
   order: [...OTHERS],
-  on: { claude: true, antigravity: true, opencode: true, commandcode: true, codex: true },
-  models: { claude: [], antigravity: [], opencode: [], commandcode: [], codex: [] },
+  // Ollama is off until the owner turns it on.
+  on: { claude: true, antigravity: true, opencode: true, commandcode: true, codex: true, ollama: false },
+  models: { claude: [], antigravity: [], opencode: [], commandcode: [], codex: [], ollama: [] },
   agyVisual: true,
   agyCoding: false,
   agyCodingModel: AGY_CODING_MODEL,
@@ -205,7 +218,7 @@ export const handoffList = (r: Routing, speeds: ModelSpeeds = {}): string => {
   const canWork = (p: Provider) => p !== 'claude' && r.on[p] && (p !== 'antigravity' || agyJobOn(r, 'coding') || agyJobOn(r, 'visual'))
   const picks = livePicks(r).filter(x => canWork(x.provider))
   const choices: { provider: Provider; model?: string; note?: string; effort?: string }[] = picks.length ? picks : r.order.filter(canWork).map(provider => ({ provider, model: r.models[provider][0] }))
-  return choices.map((x, i) => `${i + 1}. ${x.model ? `${x.model}${x.effort ? ` (${x.effort})` : ''} on ` : ''}${nameOf(x.provider)}${x.model ? routingSpeed(speeds, x.model) : ''}${x.provider === 'antigravity' && !agyJobOn(r, 'coding') ? ' (visual checks only)' : ''} via ${routingHow(r, x.provider, x.model, x.effort)}${x.note ? ` (note: ${x.note})` : ''}`).join(', ')
+  return choices.map((x, i) => `${i + 1}. ${x.model ? `${x.model}${x.effort ? ` (${x.effort})` : ''} on ` : ''}${nameOf(x.provider)}${x.model ? routingSpeed(speeds, x.model) : ''}${x.provider === 'antigravity' && !agyJobOn(r, 'coding') ? ' (visual checks only)' : ''}${x.provider === 'ollama' ? ' (small text jobs only)' : ''} via ${routingHow(r, x.provider, x.model, x.effort)}${x.note ? ` (note: ${x.note})` : ''}`).join(', ')
 }
 
 export const planDeny = (r: Routing) => `The owner set Claude to plans only: no Claude subagents or workflows. Hand the task to a side model yourself with Bash (run_in_background for long runs), from the owner's list: ${handoffList(r) || '(no side models enabled)'}. Then check what comes back.`
@@ -228,8 +241,8 @@ export const demote = (r: Routing, over: Provider[]): Routing =>
     : r
 
 // Initial seeds for the stored built-in presets, ranked by provider.
-const CHEAP: Provider[] = ['opencode', 'commandcode', 'antigravity', 'codex', 'claude']
-const BEST: Provider[] = ['codex', 'claude', 'antigravity', 'opencode', 'commandcode']
+const CHEAP: Provider[] = ['ollama', 'opencode', 'commandcode', 'antigravity', 'codex', 'claude']
+const BEST: Provider[] = ['codex', 'claude', 'antigravity', 'opencode', 'commandcode', 'ollama']
 const byRank = (rank: Provider[]) => (r: Routing): Routing => {
   const at = (p: Provider) => rank.indexOf(p)
   return withPicks({ ...r, role: r.role === 'claude' ? 'auto' : r.role, order: [...r.order].sort((a, b) => at(a) - at(b)) }, [...r.picks].sort((a, b) => at(a.provider) - at(b.provider)))
@@ -259,6 +272,7 @@ export const HOW: Record<Provider, (model?: string, effort?: string, routing?: R
   opencode: (m, e) => `\`opencode run -m ${m ?? '<provider/model>'}${e ? ` --variant ${e}` : ''} "<task>"\` (see the other-agents skill)`,
   commandcode: (m, e) => `the Command Code CLI${m ? ` with --model ${m}` : ''}${e ? ` --effort ${e}` : ''} (see the other-agents skill)`,
   codex: (m, e) => `\`codex exec${m ? ` -m ${m}` : ''}${e ? ` -c model_reasoning_effort=${e}` : ''} "<task>" < /dev/null\``,
+  ollama: m => `the ollama_run tool (mcp__agent-overview__ollama_run)${m ? ` with model "${m}"` : ''}: put the whole task and its input in prompt; it returns the model's text (call it directly, no subagent needed)`,
 }
 
 export const routingHow = (r: Routing, p: Provider, model?: string, effort?: string) => HOW[p](model, effort, r)
@@ -350,7 +364,8 @@ export const lead = (r: Routing, over: Provider[] = []): { provider: Provider; m
   const picks = livePicks(r)
   const chosen = picks.find(x => x.provider === p)
   if (chosen && !over.includes(chosen.provider)) return { ...chosen, main: true }
-  const x = picks.find(x => x.provider !== p && tagOf(r, x.provider) !== 'saver')
+  // Ollama takes small jobs only: it is the main model when tagged so, never by rank.
+  const x = picks.find(x => x.provider !== p && tagOf(r, x.provider) !== 'saver' && x.provider !== 'ollama')
   return x ? { ...x, main: false } : undefined
 }
 
@@ -360,7 +375,7 @@ export function subagentRoute(r: Routing, g: Guard, input: { prompt?: string; de
   if (!input.fork && !input.resume && input.model && babysitterModel(input.prompt ?? '', input.model, g.babysitterModel) === input.model) return {}
   if (r.role !== 'auto' || g.routingGuard === 'off' || tagOf(r, 'claude') === 'main') return {}
   const saver = tagOf(r, 'claude') === 'saver'
-  const target = lead(r, over) ?? (saver ? livePicks(r).find(x => x.provider !== 'claude' && !over.includes(x.provider)) : undefined)
+  const target = lead(r, over) ?? (saver ? livePicks(r).find(x => x.provider !== 'claude' && x.provider !== 'ollama' && !over.includes(x.provider)) : undefined)
   if (!target || target.provider === 'claude') return {}
   const provider = target.provider
   const main = `${nameOf(provider)} (${target.model ?? 'default model'})`
@@ -380,6 +395,8 @@ export function subagentRoute(r: Routing, g: Guard, input: { prompt?: string; de
 
 // Side providers whose CLI is not on this machine.
 export const missingOf = (ps: Partial<Record<Provider, { status?: string }>>): Provider[] => OTHERS.filter(p => ps[p]?.status === 'missing')
+// Installed but not answering (Ollama with its local server down): no work goes there until it does.
+export const offlineOf = (ps: Partial<Record<Provider, { status?: string; offline?: string }>>): Provider[] => OTHERS.filter(p => ps[p]?.status !== 'missing' && !!ps[p]?.offline)
 // A reading of the routing with those providers out: no work goes to a tool that is not installed.
 // The saved routing keeps the owner's choices, so they return when the tool is installed.
 export const without = (r: Routing, gone: Provider[]): Routing => {
@@ -429,8 +446,19 @@ const adversaryText = (r: Routing, short = false) => {
     : `Adversarial review: after any change to code or other deliverables, have ${model} review it adversarially, run with ${routingHow(r, pick.provider, pick.model, pick.effort)}: tell it to try to break the change and list concrete defects with file:line, no style nits. Give its findings to the model that did the work to fix, then review again. Up to ${a.rounds} rounds; stop early when a round finds nothing real. Skip it for questions and trivial edits.`
 }
 
-export const routingText = (saved: Routing, _done: Partial<Record<Provider, number>> = {}, over: { p: Provider; spent: number; cap: number }[] = [], opts: Partial<Pick<Guard, 'planSubagents' | 'codexImages' | 'routingGuard' | 'babysitterModel'>> & { missing?: Provider[]; claudeModels?: { id: string; efforts?: string[] }[] } = {}, speeds: ModelSpeeds = {}) => {
+// What Ollama is for and which local models it may run: the owner's allowed ones, else every installed one.
+const ollamaLine = (r: Routing, installed: string[], speeds: ModelSpeeds) => {
+  const picked = r.picks.filter(x => x.provider === 'ollama' && !isEmbedder(x.model)).map(x => x.model)
+  const models = picked.length ? picked : installed.filter(m => !isEmbedder(m))
+  if (!models.length) return 'Ollama (local) is on but has no chat model installed: do not use it.'
+  return `Ollama (local) runs models on this Mac at no cost: ${OLLAMA_JOBS}${picked.length || !r.picks.length ? '' : ' Use it for those jobs even though it is not in the allowed list.'} Models: ${models.map(m => m + routingSpeed(speeds, m)).join(', ')}. Run it with ${HOW.ollama(models[0])}.`
+}
+
+export const routingText = (saved: Routing, _done: Partial<Record<Provider, number>> = {}, over: { p: Provider; spent: number; cap: number }[] = [], opts: Partial<Pick<Guard, 'planSubagents' | 'codexImages' | 'routingGuard' | 'babysitterModel'>> & { missing?: Provider[]; down?: Provider[]; ollamaModels?: string[]; claudeModels?: { id: string; efforts?: string[] }[] } = {}, speeds: ModelSpeeds = {}) => {
   const gone = opts.missing ?? []
+  // Installed but not answering: off for now, and said so when the owner had it on.
+  const down = (opts.down ?? []).filter(p => !gone.includes(p))
+  const downOn = down.filter(p => saved.on[p])
   // With no model picked, Claude's own models and efforts are still a choice to make per task.
   const family = (id: string) => ['fable', 'opus', 'sonnet', 'haiku'].findIndex(f => id.includes(f))
   const own = [...(opts.claudeModels ?? [])].filter(m => family(m.id) >= 0).sort((a, b) => family(a.id) - family(b.id))
@@ -438,9 +466,9 @@ export const routingText = (saved: Routing, _done: Partial<Record<Provider, numb
     ? `Claude subagents, no model picked by the owner, so choose per task from Claude's models, smartest first: ${own.map((m, i) => `${i + 1}. ${m.id}${m.efforts?.length ? ` (effort ${m.efforts.join('/')})` : ''}${routingSpeed(speeds, m.id)}`).join(', ')}. ` +
       'Set the Agent tool\'s model and effort to fit the task: hard work (design, tricky bugs, large builds) gets a model near the top at high effort; routine building a middle model at medium; small self-contained work (lookups, summaries, narrow edits) a model further down at low effort.'
     : ''
-  const r = demote(without(saved, gone), over.map(x => x.p))
+  const r = demote(without(saved, [...gone, ...down]), over.map(x => x.p))
   const live = r.order.filter(p => canWork(r, p))
-  const off = (['claude', ...r.order] as Provider[]).filter(p => !r.on[p] && !gone.includes(p))
+  const off = (['claude', ...r.order] as Provider[]).filter(p => !r.on[p] && !gone.includes(p) && !downOn.includes(p))
   const picks = livePicks(r)
   const main = lead(r, over.map(x => x.p))
   const tagged = PROVIDERS.find(p => tagOf(r, p.id) === 'main')?.id
@@ -459,7 +487,7 @@ export const routingText = (saved: Routing, _done: Partial<Record<Provider, numb
   const head = 'Delegation routing, set live by the owner in the agent panel. It overrides any delegation order or provider rules in CLAUDE.md or AGENTS.md; follow it exactly.' + `\nSubagents that only run and wait on a side provider use ${opts.babysitterModel ?? BABYSITTER_MODEL}.`
   const guardLine = opts.routingGuard === 'off' ? '' : `Routing guard: ${opts.routingGuard ?? 'warn'}.`
   if (r.role === 'claude') {
-    return [head, guardLine, optimizeText(r), adversaryText(r), picks.some(x => x.provider === 'claude') ? `Allowed models: ${picks.filter(x => x.provider === 'claude').map(x => `${x.model}${x.effort ? ` (${x.effort})` : ''} on Claude${routingSpeed(speeds, x.model)}`).join(', ')}.` : '', claudeTiers, 'Claude only: do all work yourself or in Claude subagents. Do not use Antigravity, OpenCode, Command Code or Codex; calls to them are refused.'].filter(Boolean).join('\n')
+    return [head, guardLine, optimizeText(r), adversaryText(r), picks.some(x => x.provider === 'claude') ? `Allowed models: ${picks.filter(x => x.provider === 'claude').map(x => `${x.model}${x.effort ? ` (${x.effort})` : ''} on Claude${routingSpeed(speeds, x.model)}`).join(', ')}.` : '', claudeTiers, 'Claude only: do all work yourself or in Claude subagents. Do not use Antigravity, OpenCode, Command Code, Codex or Ollama; calls to them are refused.'].filter(Boolean).join('\n')
   }
   const lines = [
     head,
@@ -498,6 +526,8 @@ export const routingText = (saved: Routing, _done: Partial<Record<Provider, numb
     Object.keys(r.paused ?? {}).length ? `Paused automatically after running out of quota: ${(Object.keys(r.paused!) as Provider[]).map(p => nameOf(p)).join(', ')}. They come back on by themselves when the quota resets.` : '',
     off.length ? `Turned off, never use: ${off.map(nameOf).join(', ')}. Calls to them are refused.` : '',
     gone.length ? `Not installed or not set up on this machine, never use: ${gone.map(nameOf).join(', ')}.` : '',
+    downOn.length ? `Off for now because it is not running, never use until it is: ${downOn.map(nameOf).join(', ')}${downOn.includes('ollama') ? " (Ollama's local server is not answering; start the Ollama app)" : ''}. Calls to it are refused.` : '',
+    canWork(r, 'ollama') ? ollamaLine(r, opts.ollamaModels ?? [], speeds) : '',
     r.on.codex
       ? opts.codexImages === 'off'
         ? 'Do not use Codex\'s image generation (turned off by the owner); Codex runs get `--disable image_generation`.'
