@@ -1377,7 +1377,9 @@ export const register: Register = on => {
     // "Claude plans only" they are told to hand the work itself to the side provider.
     const preferred = r0.models.claude[0]
     const handoff = route.handoff ?? (!e.fork && !e.resume ? handoffText(r0, await read($, modelSpeeds)) : undefined)
-    let spawn = selected ? { ...e, model: selected } : tableRoute ? { ...e, model: tableRoute.model } : preferred && !e.model && !e.fork && !e.resume && r0.role !== 'plan' ? { ...e, model: preferred } : e
+    // An explicit model on the call wins; the table fills in only when the caller named none (a silent swap hid
+    // Fable and Opus requests behind the table's Sonnet, 17 Nov).
+    let spawn = selected ? { ...e, model: selected } : tableRoute && !e.model ? { ...e, model: tableRoute.model } : preferred && !e.model && !e.fork && !e.resume && r0.role !== 'plan' ? { ...e, model: preferred } : e
     if (handoff) spawn = { ...spawn, prompt: `${handoff}\n\n${spawn.prompt}` }
     if (spawn.model) await setNode($, n => n.id === node.id, n => ({ ...n, model: spawn.model! }))
     let ran
