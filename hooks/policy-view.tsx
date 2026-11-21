@@ -78,15 +78,23 @@ export async function confidentialCard($: $, E: E, w: number) {
   const u = await read($, ui)
   const cwd = c.cwd || await $.session.cwd().catch(() => '')
   const here = onAllowlist(p.allow, cwd)
+  // '/' on the allowlist = every project the mod runs in; client work and confidential paths are still refused first.
+  const all = p.allow.includes('/')
+  const listed = p.allow.filter(a => a !== '/')
   const pathW = Math.max(20, w - 12)
   return Card(E, 'card:confidential', 'CONFIDENTIAL', here ? 'subtle' : 'warning', <E.Box flexDirection="column" gap={E.desk ? 1 : 0}>
-    {SettingsRow(E, 'conf:here', 'Antigravity in this project', [
+    {SettingsRow(E, 'conf:all', 'Antigravity in every project', [
+      <E.Button key="conf:all:off" plain onPress={() => savePolicy($, x => ({ ...x, allow: x.allow.filter(a => a !== '/') }))}>{Chip(E, 'Off', !all, 'warning')}</E.Button>,
+      <E.Button key="conf:all:on" plain onPress={() => savePolicy($, x => ({ ...x, allow: x.allow.includes('/') ? x.allow : ['/', ...x.allow] }))}>{Chip(E, 'On', all, 'success')}</E.Button>,
+    ])}
+    {all ? null : SettingsRow(E, 'conf:here', 'Antigravity in this project', [
       <E.Button key="conf:here:off" plain onPress={() => savePolicy($, x => ({ ...x, allow: x.allow.filter(a => a !== cwd) }))}>{Chip(E, 'Off', !here, 'warning')}</E.Button>,
       <E.Button key="conf:here:on" plain onPress={() => cwd && savePolicy($, x => ({ ...x, allow: [...x.allow, cwd] }))}>{Chip(E, 'Allowed', here, 'success')}</E.Button>,
     ])}
     <E.Text dimColor wrap="truncate-start">{fit(cwd || 'project unknown', pathW)}</E.Text>
-    {p.allow.length ? <E.Text weight="bold">Allowlist</E.Text> : <E.Text dimColor>No project is allowed: Antigravity (gemini_run, its tools, agy -p) is refused everywhere.</E.Text>}
-    {p.allow.map(a => <E.Box key={`conf:allow:${a}`} flexDirection="row" gap={1}>
+    {all ? <E.Text dimColor wrap="wrap">Every project you use the mod in may use Antigravity (public material only); client work and the confidential paths below are still refused.</E.Text>
+      : listed.length ? <E.Text weight="bold">Allowlist</E.Text> : <E.Text dimColor>No project is allowed: Antigravity (gemini_run, its tools, agy -p) is refused everywhere.</E.Text>}
+    {(all ? [] : listed).map(a => <E.Box key={`conf:allow:${a}`} flexDirection="row" gap={1}>
       <E.Button key={`conf:allow:del:${a}`} plain onPress={() => savePolicy($, x => ({ ...x, allow: x.allow.filter(y => y !== a) }))}><E.Text color="error">✕</E.Text></E.Button>
       <E.Text wrap="truncate-start">{fit(a, pathW)}</E.Text>
     </E.Box>)}

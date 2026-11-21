@@ -104,3 +104,16 @@ test('Models shows the CONFIDENTIAL card: allow this project in one press, list 
     await ui.unmount()
   }
 })
+
+test('"every project" ("/" on the allowlist) allows any folder, but client work and confidential paths still lose', () => {
+  const p: Policy = { ...defaultPolicy(), allow: ['/'] }
+  for (const cwd of ['/Users/sai/joobScript', '/Users/sai/any/other/project', P]) {
+    expect(onAllowlist(p.allow, cwd)).toBe(true)
+    expect(cloudCheck(p, cwd, { sensitivity: 'public', text: 'check this public logo' })).toEqual({ allowed: true })
+  }
+  expect(cloudCheck(p, P, { sensitivity: 'client' }).allowed).toBe(false)
+  expect(cloudCheck(p, P, { sensitivity: 'public', text: 'look at client_briefs/acme/brief.pdf' }).allowed).toBe(false)
+  expect(cloudCheck(p, `${P}/client_briefs/acme`, { sensitivity: 'public' }).allowed).toBe(false)
+  expect(cloudCheck(p, P, { sensitivity: 'internal', publicOnly: true }).allowed).toBe(false)
+  expect(cloudCheck({ ...defaultPolicy(), allow: [] }, P, { sensitivity: 'public' }).allowed).toBe(false)
+})
