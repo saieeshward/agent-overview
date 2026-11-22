@@ -27,3 +27,16 @@ Saved /Users/saieeshwar/.claude/dev-mods/03e5dd05-65ec-4c24-9b90-9eaf185d5c5e/ag
 Saved /Users/saieeshwar/.claude/dev-mods/03e5dd05-65ec-4c24-9b90-9eaf185d5c5e/agent-overview/evals/results-coder-2026-11-22.json
 free disk: 4.2Gi
 --- pulling qwen3.5:4b
+
+=== qwen3.5:4b
+  PASS  slugify        2.7s  
+  FAIL  duration       4.7s  AssertionError
+  PASS  fix_bug        1.2s  
+  FAIL  regex          2.8s  AssertionError
+  PASS  js_to_py       1.9s  
+  PASS  json_fields    1.4s  {"function": "merge_counts", "params": ["a", "b", "keep_zero"], "returns": "total"}
+  FAIL  commit_msg     0.9s  Increase random sleep duration and reduce results limit to avoid LinkedIn rate limits.
+  FAIL  explain        2.0s  This code defines a `seen` set to track elements already encountered and uses a list compr
+  -> 4/8 passed | 34.0 tok/s | load 5.7s | resident 4.1 GB | free memory 28% loaded, 25% after | 17.6s total
+
+Saved /Users/saieeshwar/.claude/dev-mods/03e5dd05-65ec-4c24-9b90-9eaf185d5c5e/agent-overview/evals/results-coder-2026-11-22.json

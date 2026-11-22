@@ -67,5 +67,74 @@
     "seconds": 1.1
    }
   ]
+ },
+ {
+  "model": "qwen3.5:4b",
+  "passed": 4,
+  "of": 8,
+  "tok_per_s": 34.0,
+  "load_s": 5.7,
+  "resident": "4.1 GB",
+  "free_mem_pct_loaded": 28,
+  "free_mem_pct_after": 25,
+  "total_s": 17.6,
+  "rows": [
+   {
+    "task": "slugify",
+    "pass": true,
+    "note": "",
+    "tokens": 79,
+    "seconds": 2.7
+   },
+   {
+    "task": "duration",
+    "pass": false,
+    "note": "AssertionError",
+    "tokens": 151,
+    "seconds": 4.7
+   },
+   {
+    "task": "fix_bug",
+    "pass": true,
+    "note": "",
+    "tokens": 31,
+    "seconds": 1.2
+   },
+   {
+    "task": "regex",
+    "pass": false,
+    "note": "AssertionError",
+    "tokens": 81,
+    "seconds": 2.8
+   },
+   {
+    "task": "js_to_py",
+    "pass": true,
+    "note": "",
+    "tokens": 53,
+    "seconds": 1.9
+   },
+   {
+    "task": "json_fields",
+    "pass": true,
+    "note": "{\"function\": \"merge_counts\", \"params\": [\"a\", \"b\", \"keep_zero\"], \"returns\": \"total\"}",
+    "tokens": 35,
+    "seconds": 1.4
+   },
+   {
+    "task": "commit_msg",
+    "pass": false,
+    "note": "Increase random sleep duration and reduce results limit to avoid LinkedIn rate limits.",
+    "tokens": 14,
+    "seconds": 0.9
+   },
+   {
+    "task": "explain",
+    "pass": false,
+    "note": "This code defines a `seen` set to track elements already encountered and uses a list comprehension to filter `items`. It iterates through each item, checking if",
+    "tokens": 61,
+    "seconds": 2.0
+   }
+  ]
  }
 ]
