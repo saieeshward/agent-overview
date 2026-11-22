@@ -6,6 +6,8 @@ import { activePreset, presetSnapshot, restorePresets } from '../hooks/preset-st
 import { BUILT_IN, defaultRouting, normalRouting, withPicks, withTag } from '../hooks/state'
 import { saveRouting } from '../hooks/ui'
 import { watchQuota } from '../hooks/providers'
+import { AUTO_AGY_KEY, autoAntigravity } from '../hooks/auto'
+import { defaultPolicy } from '../hooks/policy'
 
 const props = { title: 'Agent panel', isFocused: true, bodyColumns: 110, placement: 'dock' as const, scroll: { offset: 0, bodyRows: 80 }, view: {} }
 const route = (): Routing => withPicks(defaultRouting(), [
@@ -218,4 +220,17 @@ test('quota pauses survive switching and edits without entering a preset snapsho
   expect(state.routing.on.codex).toBe(false)
   expect(state.routing.paused).toEqual(pauses)
   await ui.unmount()
+})
+
+test('Antigravity switches itself on once (Visual, Coding, every project); a later "off" sticks', async ($, on) => {
+  const { state, store, api } = setup(on)
+  state.routing = { ...state.routing, agyVisual: false, agyCoding: false }
+  state.policy = { ...defaultPolicy(), allow: ['/Users/sai/one'] }
+  expect(await autoAntigravity(api)).toBe(true)
+  expect(state.routing.agyVisual && state.routing.agyCoding).toBe(true)
+  expect(state.policy.allow).toEqual(['/', '/Users/sai/one'])
+  expect(store[AUTO_AGY_KEY]).toBe(1)
+  await saveRouting(api, r => ({ ...r, agyCoding: false }))
+  expect(await autoAntigravity(api)).toBe(false)
+  expect(state.routing.agyCoding).toBe(false)
 })

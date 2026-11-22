@@ -22,6 +22,7 @@ import { STREAMED, editWindow, hunk, numstat, partialField, sideWindow, trimEdit
 import { DEFAULT_PINS, MARKS, dropServerBlocks, filterListing, forcedText, offText, skillMode, toolMode } from './toggles'
 import { PANE, drawBand, drawPane, fit, tok } from './view'
 import { IMPACT, shortModel, tableOf } from './ui'
+import { autoAntigravity } from './auto'
 import { mergeFinding, stageDeny, workText } from './work/stage'
 import { geminiRun, vetImages } from './gemini'
 import { runsAgy } from './agyguard'
@@ -1122,6 +1123,7 @@ export const register: Register = on => {
     // A reload may bring new routing words: the cached routing section is composed again.
     $.ui.invalidate('prompt.section')
     await loadPolicy($)
+    await autoAntigravity($)                // once: Antigravity's jobs and every project on (hooks/auto.ts)
     void loadConfidential($)
     const savedGuard = await $.store.get('guard').catch(() => undefined)
     await update($, guard, () => normalGuard(savedGuard))
