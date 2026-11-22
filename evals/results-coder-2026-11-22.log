@@ -1,0 +1,29 @@
+
+=== qwen3.5:9b
+  PASS  slugify        2.5s  
+  FAIL  duration       6.2s  ValueError: Invalid format at position 0
+  PASS  fix_bug        1.5s  
+  FAIL  regex          3.0s  AssertionError
+  PASS  js_to_py       2.5s  
+  PASS  json_fields    1.7s  {"function": "merge_counts", "params": ["a", "b", "keep_zero"], "returns": "total"}
+  PASS  commit_msg     1.6s  Reduce results and add random delay to avoid LinkedIn rate limits
+  FAIL  explain        4.1s  This code creates a list of unique elements from the `items` collection by using a list co
+  -> 5/8 passed | 25.1 tok/s | load 11.0s | resident 7.7 GB | free memory 15% loaded, 15% after | 23.1s total
+
+Saved /Users/saieeshwar/.claude/dev-mods/03e5dd05-65ec-4c24-9b90-9eaf185d5c5e/agent-overview/evals/results-coder-2026-11-21.json
+--- pulling qwen2.5-coder:3b
+
+=== qwen2.5-coder:3b
+  PASS  slugify        1.6s  
+  FAIL  duration       2.2s  ValueError: invalid literal for int() with base 10: '1h30'
+  PASS  fix_bug        2.9s  
+  FAIL  regex          2.0s  re.error: nothing to repeat at position 29
+  PASS  js_to_py       1.1s  
+  PASS  json_fields    0.9s  {"function": "merge_counts", "params": ["a", "b", "keep_zero"], "returns": "total"}
+  FAIL  commit_msg     0.9s  Update scraper to respect LinkedIn's rate limits by adding a random sleep between 2.5 and 
+  PASS  explain        1.1s  This code creates a set called `seen` to keep track of unique elements from the list `item
+  -> 5/8 passed | 53.0 tok/s | load 1.6s | resident 2.2 GB | free memory 58% loaded, 58% after | 12.7s total
+
+Saved /Users/saieeshwar/.claude/dev-mods/03e5dd05-65ec-4c24-9b90-9eaf185d5c5e/agent-overview/evals/results-coder-2026-11-22.json
+free disk: 4.2Gi
+--- pulling qwen3.5:4b

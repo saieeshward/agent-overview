@@ -24,10 +24,14 @@ test('a declaration leads the description: task type then sensitivity, both on t
 
 test('the table defaults come from the evals, old saves fill in, and bad entries fall back', () => {
   const t = defaultTable()
-  expect(t.summarise).toEqual({ lane: 'ollama', model: 'qwen3.5:9b' })
+  expect(t.summarise).toEqual({ lane: 'ollama', model: 'qwen2.5-coder:3b' })
   expect(t['private-extract'].lane).toBe('ollama')
-  // Ollama passed the visual eval 2/2, faster and local: it is the default; public images go to Gemini (see resolveRoute).
-  expect(t.visual).toEqual({ lane: 'ollama', model: 'qwen3.5:9b' })
+  // The local model is text-only (qwen2.5-coder:3b since 2026-11-22): images go to Claude, public ones to Gemini.
+  expect(t.visual).toEqual({ lane: 'claude', model: 'claude-haiku-5-5', effort: 'low' })
+  // Saves naming the uninstalled 9B, or the text-only local model for images, fall back to the defaults.
+  const migrated = normalPolicy({ table: { summarise: { lane: 'ollama', model: 'qwen3.5:9b' }, visual: { lane: 'ollama', model: 'qwen2.5-coder:3b' } } })
+  expect(migrated.table.summarise).toEqual(t.summarise)
+  expect(migrated.table.visual).toEqual(t.visual)
   expect(t.lookup).toEqual({ lane: 'claude', model: 'claude-haiku-5-5', effort: 'low' })
   expect(t.design).toEqual({ lane: 'claude', model: 'claude-opus-5-5', effort: 'high' })
   expect(Object.keys(t).sort()).toEqual([...TASK_TYPES].sort())
@@ -52,12 +56,12 @@ test('side lanes close in Claude only, when off or down, and the cloud lane alwa
   expect(lanesOpen(r, up, 'public', { allowed: false, why: 'project not on the allowlist' }).why.gemini).toBe('project not on the allowlist')
 
   const p = defaultPolicy()
-  expect(resolveRoute(p, 'summarise', lanesOpen(r, up))).toMatchObject({ lane: 'ollama', model: 'qwen3.5:9b' })
+  expect(resolveRoute(p, 'summarise', lanesOpen(r, up))).toMatchObject({ lane: 'ollama', model: 'qwen2.5-coder:3b' })
   // Claude only keeps task routing within Claude: the side lanes' work goes to the fallbacks.
   expect(resolveRoute(p, 'summarise', only)).toMatchObject({ ...FALLBACK.ollama, moved: 'Claude only' })
-  // Client and internal images stay on Ollama; only public ones go to Gemini.
-  expect(resolveRoute(p, 'visual', lanesOpen(r, up, 'client'), 'client')).toMatchObject({ lane: 'ollama', model: 'qwen3.5:9b' })
-  expect(resolveRoute(p, 'visual', lanesOpen(r, up, 'internal'), 'internal')).toMatchObject({ lane: 'ollama' })
+  // Client and internal images stay on Claude; only public ones go to Gemini.
+  expect(resolveRoute(p, 'visual', lanesOpen(r, up, 'client'), 'client')).toMatchObject({ lane: 'claude', model: 'claude-haiku-5-5' })
+  expect(resolveRoute(p, 'visual', lanesOpen(r, up, 'internal'), 'internal')).toMatchObject({ lane: 'claude' })
   expect(resolveRoute(p, 'visual', lanesOpen(r, up, 'public'), 'public')).toMatchObject({ lane: 'gemini', model: 'gemini-3.8-flash-medium' })
   expect(resolveRoute(p, 'visual', lanesOpen({ ...r, role: 'claude' }, up, 'public'), 'public')).toMatchObject({ ...FALLBACK.ollama })
   // An owner's own visual row is never overridden.
@@ -69,7 +73,7 @@ test('the routing text states the declaration format and the live table briefly'
   const r = withOllama(defaultRouting())
   const text = declarationText(defaultPolicy(), lanesOpen(r, up))
   expect(text).toContain('task:<type> sensitivity:<client|internal|public>')
-  expect(text).toContain('summarise → Ollama qwen3.5:9b via ollama_run, no subagent')
+  expect(text).toContain('summarise → Ollama qwen2.5-coder:3b via ollama_run, no subagent')
   expect(text).toContain('build → Claude claude-sonnet-5-5 (medium)')
   expect(text).toContain('never goes to Gemini')
   expect(text.split('\n').length).toBe(2)
@@ -166,7 +170,7 @@ test('Models shows the task table, declaration modes and the routing log; edits 
     await ui.select({ key: 'task:effort:build', value: 'high' })
     expect(stored?.table.build.effort).toBe('high')
     await ui.select({ key: 'task:lane:review', value: 'ollama' })
-    expect(stored?.table.review).toEqual({ lane: 'ollama', model: 'qwen3.5:9b' })
+    expect(stored?.table.review).toEqual({ lane: 'ollama', model: 'qwen2.5-coder:3b' })
     await ui.press({ key: 'tasks:reset' })
     expect(stored?.table).toEqual(defaultTable())
     await ui.press({ key: 'tasks:declare:warn' })

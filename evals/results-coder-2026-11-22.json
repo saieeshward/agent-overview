@@ -1,0 +1,71 @@
+[
+ {
+  "model": "qwen2.5-coder:3b",
+  "passed": 5,
+  "of": 8,
+  "tok_per_s": 53.0,
+  "load_s": 1.6,
+  "resident": "2.2 GB",
+  "free_mem_pct_loaded": 58,
+  "free_mem_pct_after": 58,
+  "total_s": 12.7,
+  "rows": [
+   {
+    "task": "slugify",
+    "pass": true,
+    "note": "",
+    "tokens": 76,
+    "seconds": 1.6
+   },
+   {
+    "task": "duration",
+    "pass": false,
+    "note": "ValueError: invalid literal for int() with base 10: '1h30'",
+    "tokens": 108,
+    "seconds": 2.2
+   },
+   {
+    "task": "fix_bug",
+    "pass": true,
+    "note": "",
+    "tokens": 138,
+    "seconds": 2.9
+   },
+   {
+    "task": "regex",
+    "pass": false,
+    "note": "re.error: nothing to repeat at position 29",
+    "tokens": 94,
+    "seconds": 2.0
+   },
+   {
+    "task": "js_to_py",
+    "pass": true,
+    "note": "",
+    "tokens": 46,
+    "seconds": 1.1
+   },
+   {
+    "task": "json_fields",
+    "pass": true,
+    "note": "{\"function\": \"merge_counts\", \"params\": [\"a\", \"b\", \"keep_zero\"], \"returns\": \"total\"}",
+    "tokens": 36,
+    "seconds": 0.9
+   },
+   {
+    "task": "commit_msg",
+    "pass": false,
+    "note": "Update scraper to respect LinkedIn's rate limits by adding a random sleep between 2.5 and 5.0 seconds between requests. Adjusted the number of results to 200.",
+    "tokens": 40,
+    "seconds": 0.9
+   },
+   {
+    "task": "explain",
+    "pass": true,
+    "note": "This code creates a set called `seen` to keep track of unique elements from the list `items`. It then uses a list comprehension to create a new list `uniq` that",
+    "tokens": 52,
+    "seconds": 1.1
+   }
+  ]
+ }
+]

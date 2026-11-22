@@ -10,7 +10,10 @@ type $ = EngineInterface
 export const TASK_TYPES: TaskType[] = ['lookup', 'summarise', 'build', 'design', 'review', 'visual', 'private-extract']
 export const SENSITIVITIES: Sensitivity[] = ['client', 'internal', 'public']
 export const LANES: Lane[] = ['claude', 'ollama', 'gemini']
-export const OLLAMA_DEFAULT = 'qwen3.5:9b'
+// qwen2.5-coder:3b replaced qwen3.5:9b on 2026-11-22: same 5/8 on the coding bake-off (evals/coder_bakeoff.py) at
+// 2.2 GB instead of 7.7 GB and twice the speed; the 9B pushed a 16 GB Mac into swap. It reads text only.
+export const OLLAMA_DEFAULT = 'qwen2.5-coder:3b'
+const OLLAMA_REMOVED = new Set(['qwen3.5:9b'])
 export const GEMINI_DEFAULT = 'gemini-3.8-flash-medium'
 export const CLAUDE_MODELS = ['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5']
 export const GEMINI_MODELS = ['gemini-3.8-flash-low', 'gemini-3.8-flash-medium', 'gemini-3.8-flash-high']
@@ -27,8 +30,8 @@ export const defaultTable = (): Record<TaskType, TaskRoute> => ({
   build: { lane: 'claude', model: 'claude-sonnet-5-5', effort: 'medium' },
   design: { lane: 'claude', model: 'claude-opus-5-5', effort: 'high' },
   review: { lane: 'claude', model: 'claude-sonnet-5-5', effort: 'high' },
-  // Ollama passed the visual eval 2/2, faster and on this Mac; Gemini takes the public ones (see resolveRoute).
-  visual: { lane: 'ollama', model: OLLAMA_DEFAULT },
+  // The local model is text-only now, so visual checks go to Claude; Gemini takes the public ones (see resolveRoute).
+  visual: { lane: 'claude', model: 'claude-haiku-5-5', effort: 'low' },
   'private-extract': { lane: 'ollama', model: OLLAMA_DEFAULT },
 })
 
@@ -43,6 +46,8 @@ export function normalPolicy(saved: unknown): Policy {
   for (const t of TASK_TYPES) {
     const x = s.table?.[t]
     if (!x || !LANES.includes(x.lane) || !isModel(x.lane, x.model)) continue
+    // A saved route to a local model that was uninstalled (or to the text-only local model for images) keeps the default.
+    if (x.lane === 'ollama' && (OLLAMA_REMOVED.has(x.model) || t === 'visual')) continue
     table[t] = { lane: x.lane, model: x.model, ...(x.lane === 'claude' && EFFORTS.includes(x.effort ?? '') ? { effort: x.effort } : {}) }
   }
   const paths = (v: unknown) => Array.isArray(v) ? [...new Set(v.filter((p): p is string => typeof p === 'string' && !!p.trim()).map(p => p.trim().replace(/(.)\/+$/, '$1')))].slice(0, 50) : []
@@ -123,10 +128,10 @@ export function lanesOpen(r: Routing, ollama: { installed: boolean; up: boolean 
 export type Resolved = TaskRoute & { declared: TaskRoute; moved?: string }
 
 // The table's route for a type, moved to Claude when its side lane cannot take the task.
-export const isDefaultVisual = (x: TaskRoute) => x.lane === 'ollama' && x.model === OLLAMA_DEFAULT
+export const isDefaultVisual = (x: TaskRoute) => { const d = defaultTable().visual; return x.lane === d.lane && x.model === d.model }
 export function resolveRoute(p: Policy, type: TaskType, open: Lanes, sensitivity?: Sensitivity): Resolved {
   let declared = p.table[type]
-  // Public images go to Gemini while the visual row is still the default; client and internal ones stay on Ollama.
+  // Public images go to Gemini while the visual row is still the default; client and internal ones stay on Claude.
   if (type === 'visual' && sensitivity === 'public' && isDefaultVisual(declared) && open.gemini) declared = { lane: 'gemini', model: GEMINI_DEFAULT }
   if (declared.lane === 'claude' || open[declared.lane]) return { ...declared, declared }
   return { ...FALLBACK[declared.lane], declared, moved: open.why[declared.lane] }
