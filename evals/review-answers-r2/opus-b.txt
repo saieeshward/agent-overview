@@ -1,0 +1,18 @@
+```json
+[
+  {"file": "retry.py", "line": 12, "issue": "`attempt` only reaches `attempts - 1`, so `attempt == attempts` is never true; the final exception is swallowed and the function returns None after a pointless extra sleep."},
+  {"file": "handlers.py", "line": 4, "issue": "The lambda captures the loop variable `name` by reference, so every handler formats with the last event name; bind it with `lambda payload, name=name: ...`."},
+  {"file": "dates.py", "line": 4, "issue": "The default `datetime.now()` is evaluated once at import, so every call without `at` logs the same stale timestamp."},
+  {"file": "dates.py", "line": 4, "issue": "`datetime.now()` is naive local time, which is inconsistent with the UTC-aware timestamps used elsewhere in the module."},
+  {"file": "dates.py", "line": 10, "issue": "`fromisoformat` returns a naive datetime when the string has no offset, and comparing it with the aware `datetime.now(timezone.utc)` raises TypeError."},
+  {"file": "files.py", "line": 7, "issue": "Path traversal: `name` such as `../../etc/passwd` or an absolute path escapes BASE because nothing resolves the path and checks it stays under BASE."},
+  {"file": "files.py", "line": 13, "issue": "Path traversal: an uploaded `name` containing `..` or an absolute path lets an attacker write files anywhere the process has write access."},
+  {"file": "files.py", "line": 14, "issue": "TOCTOU race between `os.path.exists` and `open(path, 'w')`: a concurrent writer or a planted symlink can be overwritten; use `open(path, 'x')` or `os.open` with O_CREAT|O_EXCL."},
+  {"file": "inventory.py", "line": 4, "issue": "Deleting from `stock` while iterating `stock.items()` raises `RuntimeError: dictionary changed size during iteration`."},
+  {"file": "inventory.py", "line": 9, "issue": "`is` tests object identity rather than equality, so equal SKU strings or ints that are distinct objects compare False; use `==`."},
+  {"file": "stream.py", "line": 10, "issue": "`rows` is a generator already exhausted by the count on line 9, so `total` is always 0 and the average is always 0."},
+  {"file": "poll.py", "line": 10, "issue": "`time.sleep` blocks the whole event loop inside a coroutine; use `await asyncio.sleep(interval)`."},
+  {"file": "poll.py", "line": 15, "issue": "`poll(c)` only creates coroutine objects that are never awaited, so no checks run and a list of coroutines is returned; use `await asyncio.gather(*(poll(c) for c in checks))`."},
+  {"file": "search.py", "line": 3, "issue": "With `hi = len(xs) - 1`, the search can never return `len(xs)`, so when every element is below `target` it wrongly returns `len(xs) - 1`; initialise `hi = len(xs)`."}
+]
+```

@@ -1,0 +1,24 @@
+```json
+[
+  {"file": "paginate.py", "line": 3, "issue": "The docstring says pages are 1-indexed, but start is computed as page * per_page, so page 1 skips the first per_page items; it should be (page - 1) * per_page."},
+  {"file": "paginate.py", "line": 3, "issue": "There is no validation that page >= 1, so page 0 or a negative page produces negative slice indices and silently returns wrong items from the end of the list."},
+  {"file": "paginate.py", "line": 9, "issue": "Floor division drops the final partial page (e.g. 25 items at 10 per page gives 2 instead of 3); it should use ceiling division, -(-n_items // per_page)."},
+  {"file": "cache.py", "line": 5, "issue": "The mutable default argument store={} is shared by every Cache instance created without an explicit store, so separate caches leak entries into each other."},
+  {"file": "cache.py", "line": 17, "issue": "time.time is stored without being called, so the timestamp is a function object and get() raises TypeError when it computes time.time() - at."},
+  {"file": "cache.py", "line": 12, "issue": "Expired entries are never removed from the store, so it grows without bound and stale keys stay in memory forever."},
+  {"file": "cache.py", "line": 10, "issue": "The check-then-read on the dict is not synchronized and set() can run between the two steps; it also cannot tell a cached None value apart from a miss."},
+  {"file": "users.py", "line": 6, "issue": "The username is interpolated straight into the SQL string, which is a SQL injection vulnerability; it should use a parameterized query: execute('... WHERE name = ?', (username,))."},
+  {"file": "users.py", "line": 5, "issue": "The sqlite3 connection is never closed, so every call leaks a connection and its file handle; it should use try/finally or contextlib.closing."},
+  {"file": "scores.py", "line": 4, "issue": "The file is opened without a with-block and never explicitly closed, which leaks the file handle."},
+  {"file": "scores.py", "line": 5, "issue": "line.split(',') raises ValueError on blank lines (such as a trailing newline), on header rows, or on names that contain commas; it should use split(',', 1) or the csv module and skip empty lines."},
+  {"file": "scores.py", "line": 8, "issue": "An empty file leaves count at 0 and raises ZeroDivisionError."},
+  {"file": "counter.py", "line": 9, "issue": "counter += 1 is a non-atomic read-modify-write on shared global state with no lock, so concurrent threads lose increments."},
+  {"file": "counter.py", "line": 16, "issue": "The threads are started but never joined, so run() returns counter before the workers finish and the value is arbitrary."},
+  {"file": "counter.py", "line": 3, "issue": "The module-level counter is never reset, so repeated calls to run() accumulate totals from earlier runs."},
+  {"file": "tokens.py", "line": 5, "issue": "The HMAC secret is a hardcoded placeholder in source, so anyone who has the code can forge valid tokens; it should be loaded from secure configuration."},
+  {"file": "tokens.py", "line": 16, "issue": "The signature is compared with ==, which is not constant-time and allows timing attacks; it should use hmac.compare_digest."},
+  {"file": "tokens.py", "line": 17, "issue": "The user is returned as soon as the signature matches, before expiry is checked, so expired tokens are accepted forever."},
+  {"file": "tokens.py", "line": 14, "issue": "Malformed tokens (the wrong number of ':' parts) raise an unhandled ValueError instead of being rejected, and a non-numeric expires value crashes int() on line 18."},
+  {"file": "tokens.py", "line": 9, "issue": "':' is used as the delimiter without escaping or rejecting it in user, so a username containing ':' produces tokens that cannot be parsed and makes the signed payload ambiguous."}
+]
+```

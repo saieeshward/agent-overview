@@ -1,0 +1,115 @@
+You are an adversarial code reviewer. Find every real bug in these Python files: correctness, security, resource handling and concurrency. Ignore style and naming. Be specific.
+Return ONLY a JSON array, one object per bug: {"file": "<name>", "line": <line number>, "issue": "<one sentence>"}.
+
+=== retry.py ===
+  1| import random
+  2| import time
+  3| 
+  4| 
+  5| def fetch_with_retry(fetch, attempts=3, base_delay=0.5):
+  6|     """Call fetch() up to `attempts` times, backing off exponentially between tries."""
+  7|     delay = base_delay
+  8|     for attempt in range(attempts):
+  9|         try:
+ 10|             return fetch()
+ 11|         except Exception:
+ 12|             if attempt == attempts:
+ 13|                 raise
+ 14|             time.sleep(delay + random.random() * 0.1)
+ 15|             delay *= 2
+
+=== handlers.py ===
+  1| def make_handlers(events):
+  2|     handlers = {}
+  3|     for name in events:
+  4|         handlers[name] = lambda payload: f"{name}: {payload}"
+  5|     return handlers
+  6| 
+  7| 
+  8| def dispatch(handlers, name, payload):
+  9|     handler = handlers.get(name)
+ 10|     return handler(payload) if handler else None
+
+=== dates.py ===
+  1| from datetime import datetime, timezone
+  2| 
+  3| 
+  4| def log_event(message, at=datetime.now()):
+  5|     return f"{at.isoformat()} {message}"
+  6| 
+  7| 
+  8| def is_expired(expires_at_iso):
+  9|     expires = datetime.fromisoformat(expires_at_iso)
+ 10|     return expires < datetime.now(timezone.utc)
+
+=== files.py ===
+  1| import os
+  2| 
+  3| BASE = "/srv/public"
+  4| 
+  5| 
+  6| def read_public(name):
+  7|     path = os.path.join(BASE, name)
+  8|     with open(path, encoding="utf-8") as f:
+  9|         return f.read()
+ 10| 
+ 11| 
+ 12| def save_upload(name, data):
+ 13|     path = os.path.join(BASE, "uploads", name)
+ 14|     if not os.path.exists(path):
+ 15|         with open(path, "w") as f:
+ 16|             f.write(data)
+
+=== inventory.py ===
+  1| def remove_empty(stock):
+  2|     for item, qty in stock.items():
+  3|         if qty == 0:
+  4|             del stock[item]
+  5|     return stock
+  6| 
+  7| 
+  8| def same_sku(a, b):
+  9|     return a is b
+
+=== stream.py ===
+  1| def read_rows(path):
+  2|     with open(path) as f:
+  3|         for line in f:
+  4|             yield line.rstrip("\n").split(",")
+  5| 
+  6| 
+  7| def summarise(path):
+  8|     rows = read_rows(path)
+  9|     count = sum(1 for _ in rows)
+ 10|     total = sum(float(r[1]) for r in rows)
+ 11|     return count, (total / count if count else 0)
+
+=== poll.py ===
+  1| import asyncio
+  2| import time
+  3| 
+  4| 
+  5| async def poll(check, interval=1.0, timeout=10.0):
+  6|     start = time.monotonic()
+  7|     while time.monotonic() - start < timeout:
+  8|         if await check():
+  9|             return True
+ 10|         time.sleep(interval)
+ 11|     return False
+ 12| 
+ 13| 
+ 14| async def poll_all(checks):
+ 15|     results = [poll(c) for c in checks]
+ 16|     return results
+
+=== search.py ===
+  1| def find_first_at_least(xs, target):
+  2|     """Index of the first element >= target in sorted xs, or len(xs) if there is none."""
+  3|     lo, hi = 0, len(xs) - 1
+  4|     while lo < hi:
+  5|         mid = (lo + hi) // 2
+  6|         if xs[mid] < target:
+  7|             lo = mid + 1
+  8|         else:
+  9|             hi = mid
+ 10|     return lo

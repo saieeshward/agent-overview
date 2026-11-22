@@ -1,0 +1,20 @@
+```json
+[
+  {"file": "retry.py", "line": 12, "issue": "The check `attempt == attempts` can never be true (attempt maxes out at attempts-1), so the final failure is never re-raised and the function silently returns None after sleeping."},
+  {"file": "retry.py", "line": 14, "issue": "The function sleeps after the last failed attempt too, adding an unnecessary delay before it gives up."},
+  {"file": "handlers.py", "line": 4, "issue": "The lambda closes over the loop variable `name` by reference, so every handler returns the output for the last event name."},
+  {"file": "dates.py", "line": 4, "issue": "The default `at=datetime.now()` is evaluated once at import time, so every call without `at` logs the same stale timestamp."},
+  {"file": "dates.py", "line": 10, "issue": "If `expires_at_iso` has no timezone, the result is a naive datetime, and comparing it with an aware `datetime.now(timezone.utc)` raises TypeError."},
+  {"file": "files.py", "line": 7, "issue": "`name` is joined to BASE without validation, so values containing `../` or absolute paths let callers read files outside /srv/public (path traversal)."},
+  {"file": "files.py", "line": 13, "issue": "`name` is joined into the uploads path without sanitisation, so a crafted name can write files outside the uploads directory (path traversal)."},
+  {"file": "files.py", "line": 14, "issue": "The exists-then-open check is a TOCTOU race, so two concurrent uploads of the same name can overwrite each other; opening with mode 'x' would be atomic."},
+  {"file": "files.py", "line": 15, "issue": "The file is opened without `encoding=`, so it uses the platform default encoding, which is inconsistent with read_public's UTF-8 and can corrupt non-ASCII data."},
+  {"file": "inventory.py", "line": 4, "issue": "Deleting from the dict while iterating over `stock.items()` raises RuntimeError: dictionary changed size during iteration."},
+  {"file": "inventory.py", "line": 9, "issue": "`a is b` compares object identity rather than SKU value, so equal SKUs that are distinct string objects are reported as different."},
+  {"file": "stream.py", "line": 4, "issue": "Blank lines yield `['']`, which causes an IndexError when summarise reads `r[1]`."},
+  {"file": "stream.py", "line": 10, "issue": "`rows` is a generator already exhausted by the `count` line, so the total is always 0 and the average is wrongly 0 for any non-empty file."},
+  {"file": "poll.py", "line": 10, "issue": "`time.sleep` inside an async function blocks the whole event loop; it should be `await asyncio.sleep(interval)`."},
+  {"file": "poll.py", "line": 16, "issue": "poll_all returns a list of un-awaited coroutine objects instead of running them, so no checks execute and the results are never produced (e.g. via asyncio.gather)."},
+  {"file": "search.py", "line": 3, "issue": "When `target` is greater than every element, the search returns len(xs)-1 instead of len(xs) because `hi` starts at the last valid index and is never moved past it."}
+]
+```

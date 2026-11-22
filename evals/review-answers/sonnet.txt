@@ -1,0 +1,18 @@
+[
+{"file":"paginate.py","line":3,"issue":"Page is documented as 1-indexed but start = page * per_page skips the first page; should be (page - 1) * per_page."},
+{"file":"paginate.py","line":9,"issue":"total_pages uses floor division so a partial last page is dropped; it needs ceiling division, e.g. (n_items + per_page - 1) // per_page."},
+{"file":"cache.py","line":5,"issue":"Mutable default argument store={} is shared across all Cache instances, so they leak entries into each other."},
+{"file":"cache.py","line":17,"issue":"Stores the function time.time instead of calling time.time(), so get() raises TypeError when computing time.time() - at."},
+{"file":"users.py","line":6,"issue":"SQL built with an f-string from username allows SQL injection; use a parameterized query."},
+{"file":"users.py","line":5,"issue":"The sqlite3 connection is never closed, leaking the resource."},
+{"file":"scores.py","line":4,"issue":"File opened without a context manager or close, so the handle leaks (especially if an exception occurs in the loop)."},
+{"file":"scores.py","line":5,"issue":"line.split(',') raises ValueError on blank lines, trailing newline-only lines, or names containing commas, and the score isn't stripped or validated."},
+{"file":"scores.py","line":8,"issue":"Division by zero when the file has no lines (count == 0)."},
+{"file":"counter.py","line":9,"issue":"counter += 1 on a shared global is a non-atomic read-modify-write with no lock, causing lost updates across threads."},
+{"file":"counter.py","line":16,"issue":"Threads are never joined, so run() returns the counter before the workers finish."},
+{"file":"tokens.py","line":16,"issue":"Signature is compared with == instead of hmac.compare_digest, enabling timing attacks."},
+{"file":"tokens.py","line":16,"issue":"A valid signature returns the user before the expiry check, so expired tokens are accepted."},
+{"file":"tokens.py","line":14,"issue":"token.split(':') raises ValueError on malformed tokens or usernames containing ':' instead of returning None, and the user:expires encoding is ambiguous."},
+{"file":"tokens.py","line":5,"issue":"Hardcoded default secret 'change-me' in source allows token forgery if it's not overridden."},
+{"file":"tokens.py","line":18,"issue":"int(expires) raises ValueError on a non-numeric expires field, which is unhandled."}
+]

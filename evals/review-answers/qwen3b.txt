@@ -1,0 +1,10 @@
+```json
+[
+    {"file": "paginate.py", "line": 4, "issue": "IndexError: list index out of range if page * per_page is greater than len(items)"},
+    {"file": "cache.py", "line": 11, "issue": "Potential security risk: SQL injection if username is not properly sanitized"},
+    {"file": "users.py", "line": 6, "issue": "Potential security risk: SQL injection if username is not properly sanitized"},
+    {"file": "scores.py", "line": 5, "issue": "Potential security risk: SQL injection if username is not properly sanitized"},
+    {"file": "counter.py", "line": 7, "issue": "Global variable used without locking, leading to race conditions"},
+    {"file": "tokens.py", "line": 14, "issue": "Potential security risk: SQL injection if user is not properly sanitized"}
+]
+```

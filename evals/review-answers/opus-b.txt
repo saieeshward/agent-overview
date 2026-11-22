@@ -1,0 +1,24 @@
+```json
+[
+  {"file": "paginate.py", "line": 3, "issue": "For a 1-indexed page, start should be (page - 1) * per_page; as written, page 1 returns the second page, the first page can never be reached, and page 0 silently works."},
+  {"file": "paginate.py", "line": 9, "issue": "Floor division drops a partial last page (e.g. 25 items gives 2 instead of 3); it should be a ceiling, -(-n_items // per_page)."},
+  {"file": "cache.py", "line": 5, "issue": "The mutable default argument store={} is shared by every Cache instance created without an explicit store, so entries leak between caches."},
+  {"file": "cache.py", "line": 17, "issue": "It stores the function time.time instead of calling time.time(), so get() raises TypeError on line 12 when subtracting a function from a float."},
+  {"file": "cache.py", "line": 14, "issue": "Expired entries are never evicted, so the store grows without bound."},
+  {"file": "cache.py", "line": 10, "issue": "The check-then-read in get and the unsynchronised writes in set are not thread-safe, and get cannot tell a cached None from a miss."},
+  {"file": "users.py", "line": 6, "issue": "Interpolating username into the SQL with an f-string allows SQL injection; use a parameterised query (WHERE name = ?)."},
+  {"file": "users.py", "line": 5, "issue": "The sqlite3 connection is never closed, which leaks a connection and file handle on every call, including when execute raises."},
+  {"file": "scores.py", "line": 4, "issue": "open(path) is never closed; use a with block so the file handle is not leaked."},
+  {"file": "scores.py", "line": 5, "issue": "Unpacking line.split(',') raises ValueError on blank lines, trailing newlines at EOF, header rows, or names that contain commas."},
+  {"file": "scores.py", "line": 6, "issue": "int(score) raises ValueError on non-integer scores such as '9.5', and nothing handles it."},
+  {"file": "scores.py", "line": 8, "issue": "An empty file leaves count at 0, so the division raises ZeroDivisionError."},
+  {"file": "counter.py", "line": 9, "issue": "counter += 1 is a non-atomic read-modify-write on shared global state with no lock, so concurrent threads lose increments."},
+  {"file": "counter.py", "line": 16, "issue": "run() returns counter without joining the threads, so it reads the value before the workers finish."},
+  {"file": "counter.py", "line": 3, "issue": "The global counter is never reset, so repeated calls to run() accumulate results from earlier runs."},
+  {"file": "tokens.py", "line": 5, "issue": "A hardcoded placeholder HMAC secret in source lets anyone who sees the code forge tokens."},
+  {"file": "tokens.py", "line": 16, "issue": "Comparing signatures with == is not constant-time and leaks timing information; use hmac.compare_digest."},
+  {"file": "tokens.py", "line": 17, "issue": "It returns the user as soon as the signature matches, before the expiry check, so expired tokens are accepted forever."},
+  {"file": "tokens.py", "line": 14, "issue": "Splitting on ':' raises an unhandled ValueError for malformed tokens or any username containing ':', so tokens for such users can never validate."},
+  {"file": "tokens.py", "line": 18, "issue": "int(expires) raises an unhandled ValueError on a non-numeric expires field instead of rejecting the token."}
+]
+```

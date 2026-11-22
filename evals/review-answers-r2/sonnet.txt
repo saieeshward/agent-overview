@@ -1,0 +1,17 @@
+```json
+[
+  {"file": "retry.py", "line": 12, "issue": "`attempt` only reaches `attempts - 1`, so `attempt == attempts` is never true: the final failure is swallowed and the function returns None instead of raising (and it also sleeps after the last try)."},
+  {"file": "handlers.py", "line": 4, "issue": "The lambda closes over the loop variable `name` (late binding), so every handler reports the last event name; bind it with `lambda payload, name=name: ...`."},
+  {"file": "dates.py", "line": 4, "issue": "`at=datetime.now()` is evaluated once at import time, so every call without `at` reuses the same stale timestamp."},
+  {"file": "dates.py", "line": 10, "issue": "`fromisoformat` on a string without a UTC offset returns a naive datetime, and comparing it to the aware `datetime.now(timezone.utc)` raises TypeError."},
+  {"file": "files.py", "line": 7, "issue": "Path traversal: `name` such as `../../etc/passwd` or an absolute path escapes BASE, because `os.path.join` discards BASE for absolute names and nothing normalises or validates the result."},
+  {"file": "files.py", "line": 13, "issue": "Same path traversal in the upload path: an attacker-controlled `name` can write outside `/srv/public/uploads`."},
+  {"file": "files.py", "line": 14, "issue": "The exists-then-open check is a TOCTOU race (and follows symlinks), so concurrent uploads can overwrite each other; use `open(path, 'x')`. The `uploads` directory is also never created, and an existing file is silently ignored."},
+  {"file": "inventory.py", "line": 4, "issue": "Deleting from the dict while iterating `stock.items()` raises `RuntimeError: dictionary changed size during iteration`."},
+  {"file": "inventory.py", "line": 9, "issue": "`is` compares object identity, not value, so equal SKU strings or numbers built separately return False; use `==`."},
+  {"file": "stream.py", "line": 10, "issue": "`rows` is a generator already exhausted by the `count` sum on line 9, so `total` is always 0 and the average is wrong."},
+  {"file": "poll.py", "line": 10, "issue": "Blocking `time.sleep` inside a coroutine stalls the whole event loop; use `await asyncio.sleep(interval)`."},
+  {"file": "poll.py", "line": 15, "issue": "`poll_all` returns a list of un-awaited coroutine objects, so nothing runs (and 'coroutine was never awaited' warnings follow); it needs `await asyncio.gather(*...)`."},
+  {"file": "search.py", "line": 3, "issue": "`hi = len(xs) - 1` makes the search never consider index `len(xs)`, so when every element is < target it returns `len(xs) - 1` instead of `len(xs)` as documented; use `hi = len(xs)`."}
+]
+```

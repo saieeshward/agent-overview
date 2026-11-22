@@ -1,0 +1,22 @@
+```json
+[
+  {"file": "retry.py", "line": 12, "issue": "`attempt` only goes up to `attempts - 1`, so `attempt == attempts` is never true: the last exception is swallowed, the function sleeps once more for nothing, and then returns None instead of raising."},
+  {"file": "retry.py", "line": 11, "issue": "`except Exception` retries every error, including non-transient ones like programming errors or auth failures, so real bugs are hidden behind extra delay."},
+  {"file": "handlers.py", "line": 4, "issue": "The lambda captures the loop variable `name` by reference, so every handler formats with the last event name; bind it with `lambda payload, name=name: ...`."},
+  {"file": "dates.py", "line": 4, "issue": "The default `at=datetime.now()` is evaluated once at import time, so every call without `at` logs the same stale timestamp."},
+  {"file": "dates.py", "line": 4, "issue": "`datetime.now()` returns a naive local time, so logged timestamps have no timezone and don't match the UTC-aware comparison in `is_expired`."},
+  {"file": "dates.py", "line": 10, "issue": "If `expires_at_iso` has no offset, `fromisoformat` returns a naive datetime, and comparing it with the aware `datetime.now(timezone.utc)` raises TypeError."},
+  {"file": "files.py", "line": 7, "issue": "Path traversal: `name` such as `../../etc/passwd` or an absolute path like `/etc/passwd` escapes BASE because `os.path.join` discards BASE for absolute components, and the result is never normalised and checked."},
+  {"file": "files.py", "line": 13, "issue": "Path traversal on upload: an attacker-controlled `name` can write files anywhere the process can write, for example by overwriting code or config via `../`."},
+  {"file": "files.py", "line": 14, "issue": "TOCTOU race between `os.path.exists` and `open(path, 'w')`: a concurrent writer or a planted symlink can be created in between and then clobbered or followed; use `open(path, 'x')` or `os.open` with `O_CREAT|O_EXCL|O_NOFOLLOW`."},
+  {"file": "files.py", "line": 15, "issue": "No encoding is given, so the write uses the platform default encoding while reads use UTF-8, which can corrupt or reject non-ASCII uploads."},
+  {"file": "inventory.py", "line": 4, "issue": "Deleting from `stock` while iterating over `stock.items()` raises `RuntimeError: dictionary changed size during iteration`."},
+  {"file": "inventory.py", "line": 9, "issue": "`a is b` tests object identity, not equality, so equal SKU strings or ints built at runtime (beyond interned or small-int cache values) compare as different."},
+  {"file": "stream.py", "line": 10, "issue": "`rows` is a generator that line 9 already used up, so `total` is always 0 and the average is always 0."},
+  {"file": "stream.py", "line": 4, "issue": "Blank lines, including a trailing empty line, or rows with fewer than two fields produce a list without index 1, which raises IndexError at line 10; a header row raises ValueError in `float()`, and naive comma splitting breaks quoted CSV fields."},
+  {"file": "poll.py", "line": 10, "issue": "`time.sleep` inside an async function blocks the whole event loop; use `await asyncio.sleep(interval)`."},
+  {"file": "poll.py", "line": 8, "issue": "A `check()` call that hangs is never bounded by `timeout`, so `poll` can run forever; wrap it in `asyncio.wait_for` with the remaining time."},
+  {"file": "poll.py", "line": 15, "issue": "`poll(c)` creates coroutine objects that are never awaited, so no checks run, a list of coroutines is returned instead of booleans, and 'coroutine was never awaited' warnings appear; use `await asyncio.gather(*(poll(c) for c in checks))`."},
+  {"file": "search.py", "line": 3, "issue": "With `hi = len(xs) - 1`, the function returns `len(xs) - 1` when every element is less than `target` instead of the documented `len(xs)`; initialise `hi = len(xs)`."}
+]
+```

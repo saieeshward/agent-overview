@@ -1,0 +1,139 @@
+{
+ "gemini-flash": [
+  0,
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  9,
+  10,
+  11
+ ],
+ "haiku": [
+  0,
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  9,
+  10,
+  11
+ ],
+ "opus-a": [
+  0,
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  9,
+  10,
+  11
+ ],
+ "opus-b": [
+  0,
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  9,
+  10,
+  11
+ ],
+ "qwen3b": [
+  0,
+  4,
+  6
+ ],
+ "sonnet": [
+  0,
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  9,
+  10,
+  11
+ ],
+ "planted": [
+  {
+   "file": "paginate.py",
+   "line": 3,
+   "what": "off-by-one, page 1 skips the first page (should be (page - 1) * per_page)"
+  },
+  {
+   "file": "paginate.py",
+   "line": 9,
+   "what": "rounds down, a partial last page is lost"
+  },
+  {
+   "file": "cache.py",
+   "line": 5,
+   "what": "mutable default shared by every Cache"
+  },
+  {
+   "file": "cache.py",
+   "line": 17,
+   "what": "stores the function, not the time (missing call)"
+  },
+  {
+   "file": "users.py",
+   "line": 6,
+   "what": "SQL injection"
+  },
+  {
+   "file": "users.py",
+   "line": 8,
+   "what": "connection never closed"
+  },
+  {
+   "file": "scores.py",
+   "line": 4,
+   "what": "file handle never closed"
+  },
+  {
+   "file": "scores.py",
+   "line": 8,
+   "what": "ZeroDivisionError on an empty file"
+  },
+  {
+   "file": "counter.py",
+   "line": 9,
+   "what": "data race, no lock around the read-modify-write"
+  },
+  {
+   "file": "counter.py",
+   "line": 16,
+   "what": "threads never joined before reading the result"
+  },
+  {
+   "file": "tokens.py",
+   "line": 16,
+   "what": "non-constant-time comparison (timing attack); use hmac.compare_digest"
+  },
+  {
+   "file": "tokens.py",
+   "line": 17,
+   "what": "returns before the expiry is checked, so expired tokens are accepted"
+  }
+ ]
+}

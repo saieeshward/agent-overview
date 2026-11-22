@@ -1,0 +1,19 @@
+[
+  {"file": "paginate.py", "line": 3, "issue": "The page is treated as 1-indexed but the offset is `page * per_page`, so page 1 skips the first page and returns the second page's items; it should be `(page - 1) * per_page`."},
+  {"file": "paginate.py", "line": 9, "issue": "`total_pages` uses floor division, so a partial last page is not counted (e.g. 15 items with per_page=10 gives 1 instead of 2)."},
+  {"file": "cache.py", "line": 5, "issue": "The mutable default `store={}` is shared by every Cache instance created without an explicit store, so entries leak between unrelated caches."},
+  {"file": "cache.py", "line": 17, "issue": "`time.time` is stored without being called, so the saved timestamp is a function object and `time.time() - at` in `get` raises TypeError on any cache hit."},
+  {"file": "cache.py", "line": 12, "issue": "Expired entries are never removed from `store`, so the cache grows without bound as keys accumulate."},
+  {"file": "users.py", "line": 6, "issue": "The username is interpolated into the SQL with an f-string, allowing SQL injection; it should use a parameterized query."},
+  {"file": "users.py", "line": 5, "issue": "The sqlite3 connection is opened and never closed, leaking a file handle on every call."},
+  {"file": "scores.py", "line": 4, "issue": "`open(path)` is never closed, leaking the file handle (and the file stays open if parsing raises)."},
+  {"file": "scores.py", "line": 5, "issue": "`line.split(\",\")` unpacks into exactly two values, so a blank line (such as a trailing empty line) or a line with extra commas raises ValueError."},
+  {"file": "scores.py", "line": 8, "issue": "If the file has no data rows, `count` is 0 and `total / count` raises ZeroDivisionError."},
+  {"file": "counter.py", "line": 9, "issue": "`counter += 1` on a global is a non-atomic read-modify-write with no lock, so concurrent threads lose updates and the total is wrong."},
+  {"file": "counter.py", "line": 16, "issue": "`run` returns `counter` without joining the threads, so it can return before the workers finish and report a partial count."},
+  {"file": "tokens.py", "line": 5, "issue": "The HMAC key is a hardcoded, well-known default (`change-me`), so anyone can forge valid tokens if the deployment doesn't override it."},
+  {"file": "tokens.py", "line": 14, "issue": "`token.split(\":\")` into exactly three parts raises ValueError on malformed tokens, and any user containing a colon (which make_token allows) produces a token that cannot be parsed."},
+  {"file": "tokens.py", "line": 16, "issue": "The signature is compared with `==`, which is not constant-time and allows timing attacks; `hmac.compare_digest` should be used."},
+  {"file": "tokens.py", "line": 17, "issue": "A token with a valid signature is accepted without checking `expires`, so expired tokens remain valid forever (the expiry check at lines 18-19 is only reached for invalid signatures and then returns None anyway)."},
+  {"file": "tokens.py", "line": 18, "issue": "`int(expires)` raises ValueError on a non-numeric expiry field instead of rejecting the token, so a crafted token with a valid signature or any malformed expiry causes an unhandled exception."}
+]
