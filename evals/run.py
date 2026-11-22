@@ -12,6 +12,7 @@ import argparse
 import base64
 import datetime as dt
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -26,7 +27,7 @@ sys.path.insert(0, str(HERE))
 from tasks import INPUTS, tasks  # noqa: E402
 
 OLLAMA = "http://127.0.0.1:11434/api/chat"
-OLLAMA_MODEL = "qwen3.5:9b"
+OLLAMA_MODEL = os.environ.get("EVAL_OLLAMA_MODEL", "qwen2.5-coder:3b")   # qwen3.5:9b until 2026-11-22
 AGY = str(Path.home() / ".local/bin/agy")
 LANES = {
     "ollama": {"model": OLLAMA_MODEL},

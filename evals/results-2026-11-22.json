@@ -1,0 +1,216 @@
+{
+ "meta": {
+  "date": "2026-11-22",
+  "seconds": 53,
+  "claude_usd": 0.0,
+  "lanes": {
+   "ollama": "qwen2.5-coder:3b"
+  },
+  "tasks": {
+   "commit": {
+    "type": "summarise",
+    "sensitivity": "internal"
+   },
+   "diff-summary": {
+    "type": "summarise",
+    "sensitivity": "internal"
+   },
+   "log-triage": {
+    "type": "private-extract",
+    "sensitivity": "internal"
+   },
+   "explain": {
+    "type": "summarise",
+    "sensitivity": "internal"
+   },
+   "extract-json": {
+    "type": "private-extract",
+    "sensitivity": "public"
+   },
+   "brief-summary": {
+    "type": "summarise",
+    "sensitivity": "public"
+   },
+   "slack": {
+    "type": "summarise",
+    "sensitivity": "internal"
+   },
+   "vision-text": {
+    "type": "visual",
+    "sensitivity": "public"
+   },
+   "vision-logo": {
+    "type": "visual",
+    "sensitivity": "public"
+   },
+   "lookup-http": {
+    "type": "lookup",
+    "sensitivity": "public"
+   },
+   "lookup-git": {
+    "type": "lookup",
+    "sensitivity": "public"
+   },
+   "edit-clamp": {
+    "type": "build",
+    "sensitivity": "public"
+   },
+   "regex-date": {
+    "type": "build",
+    "sensitivity": "public"
+   },
+   "json-reformat": {
+    "type": "private-extract",
+    "sensitivity": "internal"
+   },
+   "classify": {
+    "type": "lookup",
+    "sensitivity": "public"
+   },
+   "review-bug": {
+    "type": "review",
+    "sensitivity": "public"
+   }
+  }
+ },
+ "results": {
+  "ollama": {
+   "commit": {
+    "pass": true,
+    "note": "",
+    "ms": 9993,
+    "tokens_in": 1002,
+    "tokens_out": 105,
+    "usd": 0.0,
+    "answer": "engine: even the blind pack's sets and vary which set is which\n\nThe re-run of 16 Nov showed two tells in the blind pack: the pipeline set\nhad five territories and the plain prompt three, and the fixed shuffle\nseed put the plain prompt in Set A for every brief. The pack now keeps the\npipeline's best "
+   },
+   "diff-summary": {
+    "pass": true,
+    "note": "",
+    "ms": 4047,
+    "tokens_in": 963,
+    "tokens_out": 68,
+    "usd": 0.0,
+    "answer": "- The blind pack now keeps the pipeline's best cards by advisory score, as many as the plain prompt wrote.\n- The pack seeds the shuffle from the brief, so the arm varies across briefs.\n- The blind pack now uses a shuffle seed that differs per brief, so the plain prompt is not Set A in every pack."
+   },
+   "log-triage": {
+    "pass": true,
+    "note": "",
+    "ms": 2570,
+    "tokens_in": 517,
+    "tokens_out": 55,
+    "usd": 0.0,
+    "answer": "The pre-push check failed due to missing dependencies in the test modules. The root cause is that the `moto` module is not installed in the environment. The fix is to install the `moto` module using pip:\n\n```bash\npip install moto\n```"
+   },
+   "explain": {
+    "pass": false,
+    "note": "6 bullets",
+    "ms": 4271,
+    "tokens_in": 315,
+    "tokens_out": 142,
+    "usd": 0.0,
+    "answer": "- This function takes two lists of dictionaries as input: `pipeline_cards` and `baseline_terrs`.\n- It shuffles the lists and selects the top three cards from each list based on their advisory score.\n- The selected cards are then paired into two sets labeled \"Set A\" and \"Set B\".\n- The function return"
+   },
+   "extract-json": {
+    "pass": true,
+    "note": "",
+    "ms": 8682,
+    "tokens_in": 1104,
+    "tokens_out": 210,
+    "usd": 0.0,
+    "answer": "```json\n{\n  \"brand\": \"Burger King\",\n  \"task\": \"Create an advertising campaign that drives home the single-minded proposition: BECAUSE FIRE IS BETTER.\",\n  \"audience\": \"18-24 year olds: Don’t watch much TV, are sceptical of marketing claims, and don’t visit Burger King restaurants as often as their pa"
+   },
+   "brief-summary": {
+    "pass": true,
+    "note": "",
+    "ms": 3675,
+    "tokens_in": 1066,
+    "tokens_out": 48,
+    "usd": 0.0,
+    "answer": "Burger King seeks to appeal to younger, cynical consumers by highlighting the unique experience of flame-grilled burgers. The brief encourages creativity and a bold approach to advertising, with a focus on getting the younger audience talking about flame-grilling."
+   },
+   "slack": {
+    "pass": true,
+    "note": "",
+    "ms": 2898,
+    "tokens_in": 133,
+    "tokens_out": 79,
+    "usd": 0.0,
+    "answer": "Hey Shrey,\n\nI've got four PRs into develop that need your review. I've suggested the order: #157 (small wording port), #243 (Deck Maker gaps), #156 (jev checks), and #166 (docs only). All are green on CI. Let me know if you need anything else.\n\nThanks,\nSai"
+   },
+   "vision-text": {
+    "pass": false,
+    "error": "HTTPError: HTTP Error 400: Bad Request",
+    "ms": 9
+   },
+   "vision-logo": {
+    "pass": false,
+    "error": "HTTPError: HTTP Error 400: Bad Request",
+    "ms": 11
+   },
+   "lookup-http": {
+    "pass": true,
+    "note": "",
+    "ms": 184,
+    "tokens_in": 45,
+    "tokens_out": 4,
+    "usd": 0.0,
+    "answer": "429"
+   },
+   "lookup-git": {
+    "pass": true,
+    "note": "",
+    "ms": 237,
+    "tokens_in": 47,
+    "tokens_out": 7,
+    "usd": 0.0,
+    "answer": "`git worktree list`"
+   },
+   "edit-clamp": {
+    "pass": true,
+    "note": "",
+    "ms": 1197,
+    "tokens_in": 80,
+    "tokens_out": 43,
+    "usd": 0.0,
+    "answer": "```python\ndef clamp(x, lo, hi):\n    if lo > hi:\n        raise ValueError(\"lo must be less than or equal to hi\")\n    return max(lo, min(x, hi))\n```"
+   },
+   "regex-date": {
+    "pass": false,
+    "note": "matches wrong strings",
+    "ms": 8679,
+    "tokens_in": 77,
+    "tokens_out": 333,
+    "usd": 0.0,
+    "answer": "To create a Python regular expression that matches an ISO calendar date in the format `YYYY-MM-DD`, where the month is between `01` and `12` and the day is between `01` and `31`, you can use the following pattern:\n\n```regex\n^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$\n```\n\nHere's a breakdown of the"
+   },
+   "json-reformat": {
+    "pass": true,
+    "note": "",
+    "ms": 2353,
+    "tokens_in": 134,
+    "tokens_out": 80,
+    "usd": 0.0,
+    "answer": "```json\n{\n  \"b2\": {\n    \"name\": \"Deck Maker\",\n    \"owner\": \"sai\"\n  },\n  \"a1\": {\n    \"name\": \"Territory tool\",\n    \"owner\": \"shrey\"\n  },\n  \"c3\": {\n    \"name\": \"Briefing\",\n    \"owner\": \"sai\"\n  }\n}\n```"
+   },
+   "classify": {
+    "pass": true,
+    "note": "",
+    "ms": 805,
+    "tokens_in": 113,
+    "tokens_out": 24,
+    "usd": 0.0,
+    "answer": "```json\n[\"feat\", \"fix\", \"docs\", \"chore\", \"fix\", \"docs\"]\n```"
+   },
+   "review-bug": {
+    "pass": true,
+    "note": "",
+    "ms": 3108,
+    "tokens_in": 101,
+    "tokens_out": 111,
+    "usd": 0.0,
+    "answer": "**Bug:** The function does not handle the case where `n` is greater than the length of `items`.\n\n**Fix:** Add a check to ensure `n` is not greater than the length of `items`.\n\n```python\ndef last_n(items, n):\n    \"\"\"The last n items, oldest first.\"\"\"\n    if n > len(items):\n        n = len(items)\n    "
+   }
+  }
+ }
+}
