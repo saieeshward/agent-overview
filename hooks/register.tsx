@@ -27,7 +27,7 @@ import { geminiRun, vetImages } from './gemini'
 import { runsAgy } from './agyguard'
 import { cleanPicked, listWorktrees, listingText, parsePicks } from './worktrees'
 import { ADVERSARY, ADVERSARY_MODEL, ADVERSARY_PROMPT, cancel as cancelReview, mainTurnEnded, mainTurnStarted, noteReviewer, takeSpawn, parseArgs, prepare as prepareReview, reviewerDone, startRound, statusText } from './adversarial'
-import { escalation, failure, isEscalated } from './escalate'
+import { escalation, failure, isEscalated, shapeFailure, shapeOf, tidy } from './escalate'
 import type { Format } from './escalate'
 import { GEMINI_DEFAULT, GEMINI_MODELS, isDefaultVisual } from './policy'
 import { flushCheck, mark, markCount, readDebugLog, startCheck } from './hookcheck'
@@ -741,13 +741,16 @@ async function ollamaRun($: EngineInterface, e: Loose): Promise<ToolCallResult> 
     try {
       const out = await ollamaGenerate($, pick.model, prompt, { system, long, format, images })
       const tokens = out.outputTokens === undefined ? undefined : out.outputTokens + (out.inputTokens ?? 0)
-      const why = failure(out.text, { doneReason: out.doneReason, format })
+      // Tidy the answer to the shape the prompt asks for (code or JSON only, one line, N bullets); escalate it if it still breaks it.
+      const shape = shapeOf(prompt, system)
+      const text = format ? out.text : tidy(out.text, shape)
+      const why = failure(text, { doneReason: out.doneReason, format }) ?? (format ? undefined : shapeFailure(text, shape))
       if (why) {
         await settleRoute($, x => x.id === e.tool_use_id, { outcome: 'escalated', tokens, ms: out.ms, note: `${why} → Claude Haiku` })
         return { result: escalation('ollama', why, decl) }
       }
-      await settleRoute($, x => x.id === e.tool_use_id, { outcome: 'done', tokens, ms: out.ms })
-      return { result: out.text }
+      await settleRoute($, x => x.id === e.tool_use_id, { outcome: 'done', tokens, ms: out.ms, ...(text !== out.text.trim() ? { note: 'tidied to the shape asked for' } : {}) })
+      return { result: text }
     } catch (err) {
       await settleRoute($, x => x.id === e.tool_use_id, { outcome: 'failed', note: String((err as Error)?.message ?? err).slice(0, 200) })
       const msg = String((err as Error)?.message ?? err).slice(0, 300)
@@ -1050,8 +1053,9 @@ export const register: Register = on => {
       name: 'ollama_run',
       isDeferred: false,
       description:
-        'Run one prompt on a local Ollama model on this Mac and get its text back. Free and private; about 20 tokens a second. ' +
+        'Run one prompt on a local Ollama model on this Mac and get its text back. Free and private; about 50 tokens a second. ' +
         'Only for small text jobs: quick summaries, commit messages, diff summaries, log triage, explain-this-code, extracting fields from private briefs. ' +
+        'Say the shape you need in the prompt (e.g. "output only the code", "one line, max 72 characters", "exactly 3 bullet points", "JSON only"): the answer is tidied to it, and one that still breaks it is escalated to Claude Haiku. ' +
         'Not for design, multi-file changes, creative writing or anything agentic: the model has no tools and cannot read files, so put everything it needs in prompt. ' +
         'Works only while the owner has Ollama on in the agent panel and its local server is running.',
       inputSchema: {
