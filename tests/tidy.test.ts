@@ -4,7 +4,7 @@ import { shapeFailure, shapeOf, tidy } from '../hooks/escalate'
 // Real qwen2.5-coder:3b answers from evals/results-2026-11-22.json and the coding bake-off.
 
 test('a prompt\'s own words give the shape: only code or JSON, one line, a character limit, a bullet count', () => {
-  expect(shapeOf('Write one Python regular expression that fully matches an ISO date. Output only the pattern, nothing else.')).toEqual({ only: 'code' })
+  expect(shapeOf('Write one Python regular expression that fully matches an ISO date. Output only the pattern, nothing else.')).toEqual({ only: 'code', regex: true })
   expect(shapeOf('Write a one-line git commit message (max 72 characters, imperative mood) for this diff.')).toEqual({ oneLine: true, maxChars: 72 })
   expect(shapeOf('Explain what this Python function does, in exactly 3 short bullet points.')).toEqual({ bullets: 3 })
   expect(shapeOf('From this brief, return JSON only, with exactly these keys: brand, task.')).toEqual({ only: 'json' })
@@ -45,4 +45,16 @@ test('JSON is lifted out of chatter; an answer with no valid JSON is escalated; 
   expect(shapeFailure(tidy('I could not find those fields.', shape), shape)).toContain('not valid JSON')
   const prose = 'The thread agrees to ship on Friday.\n\nAnna owns the release notes.'
   expect(tidy(prose, shapeOf('Summarise this Slack thread.'))).toBe(prose)
+})
+
+test('a regex answer loses its r"..." wrapper and must compile; the live 2026-11-22 UK-postcode answer is escalated', () => {
+  const shape = shapeOf('Write one Python regular expression that fully matches a UK postcode. Output only the pattern, nothing else.')
+  expect(shape.regex).toBe(true)
+  const broken = tidy('r"^(GIR 0AA|[A-PR-UWYZ]([0-9]{1,2}|[A-Z][0-9]?)[0-9][ABD-HJLNP-UW-Z]{2}|(GB-[0-9]{4})$"', shape)
+  expect(broken.startsWith('^(GIR')).toBe(true)
+  expect(shapeFailure(broken, shape)).toBe('its regex does not compile')
+  const good = tidy("r'^[A-Z]{1,2}\\d[A-Z\\d]? \\d[A-Z]{2}$'", shape)
+  expect(good).toBe('^[A-Z]{1,2}\\d[A-Z\\d]? \\d[A-Z]{2}$')
+  expect(shapeFailure(good, shape)).toBeUndefined()
+  expect(shapeFailure('(?P<year>\\d{4})-(?P=year)', shape)).toBeUndefined()
 })

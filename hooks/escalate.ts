@@ -55,7 +55,7 @@ export const isEscalated = (rest: string) => /^escalated\b/i.test(rest.trim())
 // a fourth bullet when three were asked for. The answer is tidied to the shape the prompt's own words ask for; one
 // that still breaks it (too long, wrong count, not JSON) is escalated like any unusable answer.
 
-export type Shape = { only?: 'json' | 'code' | 'text'; oneLine?: boolean; maxChars?: number; bullets?: number }
+export type Shape = { only?: 'json' | 'code' | 'text'; oneLine?: boolean; maxChars?: number; bullets?: number; regex?: boolean }
 
 const NUM: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 }
 const num = (w: string) => NUM[w.toLowerCase()] ?? Number(w)
@@ -71,6 +71,8 @@ export function shapeOf(prompt: string, system = ''): Shape {
   if (max) s.maxChars = Number(max[1])
   const b = /\bexactly\s+(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:short\s+)?bullet/i.exec(t)
   if (b) s.bullets = num(b[1]!)
+  // "only the pattern" for a regex: the answer must be one pattern that compiles.
+  if (s.only === 'code' && /\b(regex|regular expression|pattern)\b/i.test(t) && !/\b(function|def |class|script)\b/i.test(t)) s.regex = true
   return s
 }
 
@@ -94,6 +96,10 @@ export function tidy(text: string, shape: Shape): string {
       t = lines.join('\n').trim()
     }
   }
+  if (shape.regex) {
+    const line = t.split('\n').map(l => l.trim()).find(Boolean) ?? ''
+    t = line.replace(/^r?(["'])(.*)\1$/, '$2').replace(/^\/(.*)\/[a-z]*$/, '$1')        // r"...", '...', /.../flags
+  }
   if (shape.oneLine) {
     const line = t.split('\n').map(l => l.trim()).find(l => l && !CHATTER.test(l)) ?? ''
     t = line.replace(/^(?:commit message|message|subject)\s*:\s*/i, '').replace(/^["'`]+|["'`]+$/g, '').trim()
@@ -116,6 +122,11 @@ export function tidy(text: string, shape: Shape): string {
 // Why a tidied answer still breaks the shape asked for, or undefined.
 export function shapeFailure(text: string, shape: Shape): string | undefined {
   if (shape.only === 'json') { try { JSON.parse(text) } catch { return 'the prompt asked for JSON only and its answer is not valid JSON' } }
+  if (shape.regex) {
+    // Python's named groups and inline flags read as JavaScript's, so the check is about structure (brackets, quantifiers).
+    try { new RegExp(text.replace(/\(\?P<(\w+)>/g, '(?<$1>').replace(/\(\?P=(\w+)\)/g, '\\k<$1>').replace(/^\(\?[aiLmsux]+\)/, '')) }
+    catch { return 'its regex does not compile' }
+  }
   if (shape.oneLine && text.includes('\n')) return 'the prompt asked for one line and its answer has several'
   if (shape.maxChars && text.length > shape.maxChars) return `its answer is ${text.length} characters, over the ${shape.maxChars} asked for`
   if (shape.bullets) {
