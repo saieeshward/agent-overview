@@ -14,7 +14,7 @@ import type { EngineInterface, Register, ToolCallResult } from 'claude-code'
 import type { Act, AgentNode, Confidential, Lane, RouteLogItem, Sensitivity, Costs, DecisionItem, Finding, Stage, Installed, Media, Mode, EditItem, GitInfo, GrillItem, History, HistoryItem, Impl, LiveEdit, MainInfo, ModelSpeeds, Prices, Provider, Providers, Routing, SideLive, TurnCost, Ui, Used, Written } from '../types'
 import { antigravityUsage, claudeUsage, ensurePrices, loadPrices, ollamaGenerate, OLLAMA_DOWN, OLLAMA_LONG, plugins, refreshModels, refreshUsage, tokens, watchQuota } from './providers'
 import { addTokens, claudeTotal, elevenCredits, matchTurnCost, mediaReadOnly, mediaService, mediaShort, mediaText, money, outputTokens, parseAgyUsage, refreshMedia, rowCost, spendBy, zero } from './cost'
-import { allOf, agyJobModel, agyJobOn, agyModelNotice, OTHERS, PROVIDERS, blank, isEmbedder, offlineOf, loadRouting, pruneStore, defaultRouting, handoffText, livePicks, nameOf, normalGuard, normalRouting, planDeny, routingText, subagentRoute, withFlags, missingOf, without } from './state'
+import { allOf, agyJobModel, agyJobOn, agyModelNotice, OTHERS, PROVIDERS, blank, isEmbedder, offlineOf, loadRouting, pruneStore, defaultRouting, handoffText, livePicks, nameOf, normalGuard, normalRouting, ownerName, planDeny, routingText, setOwner, subagentRoute, withFlags, missingOf, without } from './state'
 import { babysitting, babysitterModel, displayAgents } from './babysitter'
 import type { SubagentRoute } from './state'
 import { externalOf, labelOf, mine, QUOTA_TEXT, detachedCommand, sideCommand, sideMarkers, sideRuns, stateOf, stdinFileOf, taskOf, usageTail, watchKey } from './graph'
@@ -993,7 +993,8 @@ async function addEdits($: EngineInterface, items: EditItem[]) {
   }))
 }
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
+  setOwner(options.owner_name)
   registerChatLook(on)
   registerChatSurfaces(on)
   on('session.start', async ($, e, next) => {
@@ -1078,9 +1079,9 @@ export const register: Register = on => {
       name: 'adversarial_review',
       isDeferred: false,
       description:
-        'Prepare an adversarial review, ONLY when Sai asks for one; never on your own initiative, never as a routine step. ' +
+        `Prepare an adversarial review, ONLY when ${ownerName()} asks for one; never on your own initiative, never as a routine step. ` +
         'It gathers the diff (against base, or the working tree vs HEAD), and returns the reviewer, rounds and estimated cost. ' +
-        'It starts nothing: tell Sai the estimate; he starts it with /review-adversarial go or Run in the agent panel. Findings land in the Review tab.',
+        `It starts nothing: tell ${ownerName()} the estimate; they start it with /review-adversarial go or Run in the agent panel. Findings land in the Review tab.`,
       inputSchema: {
         type: 'object',
         properties: {
@@ -1587,7 +1588,7 @@ export const register: Register = on => {
     if (e.tool === GEMINI_TOOL) return geminiTool($, e)
     if (e.tool === REVIEW_PREP_TOOL) {
       const text = await prepareReview($, { action: 'prepare', base: typeof e.base === 'string' && e.base.trim() ? e.base.trim() : undefined, goal: String(e.goal ?? ''), rounds: typeof e.rounds === 'number' ? Math.max(1, Math.min(5, Math.round(e.rounds))) : undefined }, await read($, routing), await read($, prices))
-      return { result: `${text}\nDo not start it yourself: only Sai starts it.` }
+      return { result: `${text}\nDo not start it yourself: only ${ownerName()} starts it.` }
     }
     if (e.tool === QA_TOOL || e.tool === GRILL_TOOL) {
       if ((await read($, ui)).area === 'vibe') return { result: 'QA logging suppressed in Vibe mode' }

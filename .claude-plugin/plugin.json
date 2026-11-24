@@ -1,1 +1,14 @@
-{"name": "agent-overview", "version": "0.1.0", "description": "Default panel: agents graph by model, live view, model routing, usage and cost, review queue, QA and settings", "types": "./types/index.d.ts"}
+{
+  "name": "agent-overview",
+  "version": "0.1.0",
+  "description": "Default panel: agents graph by model, live view, model routing, usage and cost, review queue, QA and settings",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "owner_name": {
+      "type": "string",
+      "title": "Your name",
+      "description": "The name the adversarial-review texts use for the person who asks for a review. Left empty, they say \"the user\".",
+      "default": ""
+    }
+  }
+}
