@@ -1,1 +1,29 @@
-{"name": "agent-overview", "version": "0.1.0", "description": "Default panel: agents graph by model, live view, model routing, usage and cost, review queue, QA and settings", "types": "./types/index.d.ts"}
+{
+  "name": "agent-overview",
+  "version": "0.1.0",
+  "description": "Default panel: agents graph by model, live view, model routing, usage and cost, review queue, QA and settings",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "cerebrasApiKey": {
+      "type": "string",
+      "title": "Cerebras API key",
+      "description": "Optional. Key for the free-tier Cerebras API (cloud.cerebras.ai). Leave blank to skip it. Public material only is ever sent.",
+      "sensitive": true,
+      "required": false
+    },
+    "groqApiKey": {
+      "type": "string",
+      "title": "Groq API key",
+      "description": "Optional. Key for the free-tier Groq API (console.groq.com). Leave blank to skip it. Public material only is ever sent.",
+      "sensitive": true,
+      "required": false
+    },
+    "openrouterApiKey": {
+      "type": "string",
+      "title": "OpenRouter API key",
+      "description": "Optional. Key for the free-tier OpenRouter API (openrouter.ai/keys). Leave blank to skip it. Public material only is ever sent.",
+      "sensitive": true,
+      "required": false
+    }
+  }
+}

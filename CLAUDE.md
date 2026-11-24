@@ -35,6 +35,7 @@ Tests import `test`, `expect`, `mock` from `claude-code/testing`. Copy the shape
 | Panel drawing (Overview tabs: dashboard, agents, models, activity, plugins, settings) | `hooks/view.tsx`, `hooks/ui.tsx`, `hooks/switches.tsx`, `hooks/presets.tsx`, `hooks/policy-view.tsx` |
 | Routing: providers, the task table, sensitivity, fallbacks | `hooks/state.ts` (routing defaults, handoff text), `hooks/policy.ts` (task table, declarations, client-material rules), `hooks/escalate.ts` (side lane fails → one Claude model), `hooks/auto.ts` |
 | Providers, usage and cost | `hooks/providers.ts` (Ollama at `127.0.0.1:11434`, quota, model lists), `hooks/cost.ts`, `hooks/speed.ts` |
+| Free cloud API lane (`free_run`: Cerebras, Groq, OpenRouter; public-only) | `hooks/freeapi.ts` (providers, fallback chain), `freeTool` in `hooks/register.tsx`, keys from `userConfig` in `plugin.json`, `tests/freeapi.test.ts` |
 | Gemini / Antigravity lane | `hooks/gemini.ts` (`agy -p --sandbox --mode plan` from an empty temp folder), `hooks/agyguard.ts` (vets shell commands that would run agy) |
 | Agents graph and live edits | `hooks/graph.ts`, `hooks/stream.ts`, `hooks/babysitter.ts` |
 | Work mode (Plan → Implement → Review → Ship) | `hooks/work/*`, `hooks/modes.ts` |
@@ -63,6 +64,8 @@ Tests import `test`, `expect`, `mock` from `claude-code/testing`. Copy the shape
 - `tests/confidential.test.ts` and `tests/round1-privacy.test.ts` use the owner's paths and project names as fixtures. That's harmless, but generic names would read better.
 - Providers that aren't set up on a machine (Codex, OpenCode, Command Code) still have slots in the state. The panel shows them as missing.
 - `claude plugin validate` warns that the plugin has no icon (`.claude-plugin/icon.png`, square, 512–2048 px).
+
+- `free_run` is a tool only: it is **not yet a lane in the routing table** (`Lane` in `types/index.d.ts` is `claude | ollama | gemini`), so it has no row in the panel's Models tab, no route log entry and no task-table default. Adding those, plus a `free` row in the evals (`evals/run.py`), is the next step. Don't make it a default until the eval says it's good.
 
 ## Getting oriented fast
 

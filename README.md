@@ -6,7 +6,7 @@ A Claude Code mod that adds an **Agent panel** beside the chat, plus routing and
 - **Model routing**: sends each delegated task to Claude, Ollama (local) or Gemini (through the Antigravity CLI), based on a task table (`lookup`, `summarise`, `build`, `design`, `review`, `visual`, `private-extract`) and how sensitive the material is (`public`, `internal`, `client`). Client material never goes to a cloud side lane.
 - **Work mode**: Plan → Implement → Review → Ship stages, with a review queue.
 - **Vibe mode**: a playful live view of the session (office or arcade style).
-- **Tools for the model**: `qa_log`, `decision_log`, `review_log`, `ollama_run`, `gemini_run`, `adversarial_review`.
+- **Tools for the model**: `qa_log`, `decision_log`, `review_log`, `ollama_run`, `gemini_run`, `free_run`, `adversarial_review`.
 - **Slash commands**: `/default` and `/overview` open the panel. `/clean-worktrees` lists and prunes worktrees. `/review-adversarial` runs an on-request adversarial review.
 
 ## Install (to use it)
@@ -32,7 +32,9 @@ To open the panel, run `/default` (or `/overview`). It opens on its own when the
 - **Ollama**: install [Ollama](https://ollama.com), then run `ollama pull qwen2.5-coder:3b`. The panel finds it at `127.0.0.1:11434`.
 - **Antigravity / Gemini**: install the Antigravity CLI (`agy`) and sign in. `gemini_run` takes public material only.
 
-Neither one is required. Without them, everything routes to Claude.
+- **Free cloud APIs** (`free_run`): get a free key from [Cerebras](https://cloud.cerebras.ai), [Groq](https://console.groq.com) and/or [OpenRouter](https://openrouter.ai/keys) and paste it into the mod's options (`/config`, the agent-overview rows: `cerebrasApiKey`, `groqApiKey`, `openrouterApiKey`). Keys are stored as secrets. The tool tries each provider that has a key, fastest first, and moves on when one is rate-limited. It takes **public material only** (free tiers may train on prompts). Free-tier model ids change without notice, so the model defaults in `hooks/freeapi.ts` may need a refresh.
+
+None of these is required. Without them, everything routes to Claude.
 
 ## Develop (to change it)
 
