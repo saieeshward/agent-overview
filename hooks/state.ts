@@ -97,7 +97,7 @@ export const PROVIDERS: { id: Provider; name: string; short: string; hotkey: str
 ]
 export const OTHERS: Provider[] = ['antigravity', 'opencode', 'commandcode', 'codex', 'ollama']
 
-// Ollama runs on this Mac: free and private, for small text jobs only. Embedding models never take tasks.
+// Ollama runs on this machine: free and private, for small text jobs only. Embedding models never take tasks.
 export const OLLAMA_JOBS = 'free, private, local: quick summaries, commit messages, diff summaries, log triage, explain-this-code, extracting fields from private briefs. Not for design, multi-file changes, creative writing or anything agentic.'
 export const isEmbedder = (model: string) => /embed/i.test(model)
 // Local model ids are name:tag ("qwen2.5:7b"), never provider/model.
@@ -450,7 +450,7 @@ const ollamaLine = (r: Routing, installed: string[], speeds: ModelSpeeds) => {
   const picked = r.picks.filter(x => x.provider === 'ollama' && !isEmbedder(x.model)).map(x => x.model)
   const models = picked.length ? picked : installed.filter(m => !isEmbedder(m))
   if (!models.length) return 'Ollama (local) is on but has no chat model installed: do not use it.'
-  return `Ollama (local) runs models on this Mac at no cost: ${OLLAMA_JOBS}${picked.length || !r.picks.length ? '' : ' Use it for those jobs even though it is not in the allowed list.'} Models: ${models.map(m => m + routingSpeed(speeds, m)).join(', ')}. Run it with ${HOW.ollama(models[0])}.`
+  return `Ollama (local) runs models on this machine at no cost: ${OLLAMA_JOBS}${picked.length || !r.picks.length ? '' : ' Use it for those jobs even though it is not in the allowed list.'} Models: ${models.map(m => m + routingSpeed(speeds, m)).join(', ')}. Run it with ${HOW.ollama(models[0])}.`
 }
 
 export const routingText = (saved: Routing, _done: Partial<Record<Provider, number>> = {}, over: { p: Provider; spent: number; cap: number }[] = [], opts: Partial<Pick<Guard, 'planSubagents' | 'codexImages' | 'routingGuard' | 'babysitterModel'>> & { missing?: Provider[]; down?: Provider[]; ollamaModels?: string[]; claudeModels?: { id: string; efforts?: string[] }[] } = {}, speeds: ModelSpeeds = {}) => {

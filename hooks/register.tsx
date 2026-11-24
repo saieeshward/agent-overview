@@ -712,7 +712,7 @@ async function ollamaRun($: EngineInterface, e: Loose): Promise<ToolCallResult> 
   const panel = "(set by the owner in the agent panel's Routing tab)"
   if (r.role === 'claude') return { deny: `Ollama is paused: Claude only ${panel}.` }
   if (!r.on.ollama) return { deny: `Ollama is turned off ${panel}.` }
-  if (info.status === 'missing') return { deny: 'Ollama is not installed on this Mac.' }
+  if (info.status === 'missing') return { deny: 'Ollama is not installed on this machine.' }
   if (info.offline) return { deny: `Ollama's ${OLLAMA_DOWN}: ask the owner to open the Ollama app, or hand the task to another provider.` }
   const prompt = typeof e.prompt === 'string' ? e.prompt : ''
   if (!prompt.trim()) return { deny: 'prompt is empty: put the whole task and its input in prompt.' }
@@ -1054,7 +1054,7 @@ export const register: Register = on => {
       name: 'ollama_run',
       isDeferred: false,
       description:
-        'Run one prompt on a local Ollama model on this Mac and get its text back. Free and private; about 50 tokens a second. ' +
+        'Run one prompt on a local Ollama model on this machine and get its text back. Free and private; about 50 tokens a second. ' +
         'Only for small text jobs: quick summaries, commit messages, diff summaries, log triage, explain-this-code, extracting fields from private briefs. ' +
         'Say the shape you need in the prompt (e.g. "output only the code", "one line, max 72 characters", "exactly 3 bullet points", "JSON only"): the answer is tidied to it, and one that still breaks it is escalated to Claude Haiku. ' +
         'Not for design, multi-file changes, creative writing or anything agentic: the model has no tools and cannot read files, so put everything it needs in prompt. ' +
@@ -1067,8 +1067,8 @@ export const register: Register = on => {
           system: { type: 'string', description: 'Optional system instruction, such as the output format' },
           long: { type: 'boolean', description: 'True for a long input: uses a 16K context window instead of 8K' },
           format: { description: '"json", or a JSON schema object, when the answer must be JSON; an answer that does not parse or match is escalated to Claude Haiku' },
-          images: { type: 'array', items: { type: 'string' }, description: 'Absolute paths of images for a vision model (private visual checks stay on this Mac)' },
-          sensitivity: { type: 'string', enum: ['public', 'internal', 'client'], description: 'Client work is fine here: it stays on this Mac' },
+          images: { type: 'array', items: { type: 'string' }, description: 'Absolute paths of images for a vision model (private visual checks stay on this machine)' },
+          sensitivity: { type: 'string', enum: ['public', 'internal', 'client'], description: 'Client work is fine here: it stays on this machine' },
           description: { type: 'string', description: 'A few words for the agent panel' },
         },
         required: ['prompt'],

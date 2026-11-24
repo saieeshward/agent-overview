@@ -237,8 +237,8 @@ test('OpenCode meters, chart and Models rows say their figures are estimates', a
     },
   } as unknown as EngineInterface
   await opencodeUsage(api)
-  expect(all.opencode.note).toBe('estimates · this Mac only · opencode.ai shows the exact figures')
-  expect(all.opencode.meters[0]?.detail).toBe('≈ $6.00 of $12 · this Mac only')
+  expect(all.opencode.note).toBe('estimates · this machine only · opencode.ai shows the exact figures')
+  expect(all.opencode.meters[0]?.detail).toBe('≈ $6.00 of $12 · this machine only')
   on('state.get', { plugin: 'agent-overview', key: 'providers' }, () => ({ value: { value: all, version: 1 } }))
   const ui = await $.ui.mount({ plugin: 'agent-overview', surface: 'terminal', ...PANE, props })
   expect(await ui.find({ type: 'Text', text: /≈50%/ })).toBeDefined()

@@ -5,7 +5,7 @@ import type { Costs, Installed, InstalledPlugin, Meter, ModelRow, Price, Prices,
 import { allOf, agyBucket, agyJobQuota, blank, defaultRouting, isEmbedder, nameOf, normalGuard, normalRouting, OTHERS, storeRouting } from './state'
 import { catalogFrom, parseCodexTokens, priceKey } from './cost'
 import { quotaOf } from './graph'
-import { at } from './paths'
+import { at, tempDir } from './paths'
 import { recordSpeed } from './speed'
 
 // State lives here as well as beside the other hooks: the engine lists each file's reads and writes from its own consts.
@@ -38,8 +38,11 @@ const BIN = {
 type Tool = 'codex' | 'opencode' | 'agy' | 'cmd' | 'node' | 'ollama'
 const TOOL_NAMES: Record<Tool, string[]> = { codex: ['codex'], opencode: ['opencode'], agy: ['agy'], cmd: ['command-code', 'commandcode'], node: ['node'], ollama: ['ollama'] }
 const TOOL_FIRST: Record<Tool, string> = { codex: BIN.codex, opencode: BIN.opencode, agy: BIN.agy, cmd: BIN.cmd, node: BIN.node, ollama: BIN.ollama }
-// Not ~/.antigravity: its `agy` there opens the IDE, it is not the CLI.
-const TOOL_DIRS = ['/opt/homebrew/bin', '/usr/local/bin', '.local/bin', '.bun/bin', '.npm-global/bin', '.opencode/bin', '.volta/bin', '.cargo/bin']
+// Not ~/.antigravity: its `agy` there opens the IDE, it is not the CLI. On Windows the Antigravity IDE puts the CLI in ~/.gemini/bin.
+const TOOL_DIRS = ['/opt/homebrew/bin', '/usr/local/bin', '.local/bin', '.bun/bin', '.npm-global/bin', '.opencode/bin', '.volta/bin', '.cargo/bin',
+  '.gemini/bin', 'AppData/Roaming/npm', 'AppData/Local/Programs/Ollama', 'C:/Program Files/nodejs']
+// Windows CLIs carry a suffix: agy.exe, codex.cmd from npm.
+const WIN_EXT = ['.exe', '.cmd']
 const CC_STATE = 'Library/Application Support/Command Code/app-state.json'
 const found = new Map<Tool, string>()
 const missed = new Map<Tool, number>()
@@ -69,7 +72,8 @@ export async function locate($: $, tool: Tool): Promise<string | undefined> {
   const nvmRoot = await at($, '.nvm/versions/node')
   const nvm = (await Promise.resolve().then(() => $.fs.list(nvmRoot)).catch(() => [])).filter(d => d.kind === 'dir').map(d => `${nvmRoot}/${d.name}/bin`).sort().reverse()
   const dirs = [...await Promise.all(TOOL_DIRS.map(d => at($, d))), ...nvm]
-  const candidates = [...new Set(dirs.flatMap(d => TOOL_NAMES[tool].map(n => `${d}/${n}`)))].filter(path => path !== first)
+  const names = TOOL_NAMES[tool].flatMap(n => [n, ...WIN_EXT.map(x => n + x)])
+  const candidates = [...new Set(dirs.flatMap(d => names.map(n => `${d}/${n}`)))].filter(path => path !== first)
   const looks = await Promise.all(candidates.map(path => isFile($, path)))
   const at0 = looks.findIndex(ok => ok === true)
   if (at0 >= 0) { found.set(tool, candidates[at0]!); return candidates[at0] }
@@ -81,7 +85,9 @@ export async function locate($: $, tool: Tool): Promise<string | undefined> {
 async function toolEnv($: $, path: string): Promise<Record<string, string>> {
   const node = await locate($, 'node')
   const host = await Promise.resolve().then(() => $.env.get('PATH')).catch(() => undefined)
-  return { PATH: [...new Set([dirOf(path), ...(node ? [dirOf(node)] : []), ...(host || '/usr/bin:/bin:/usr/sbin:/sbin').split(':')])].filter(Boolean).join(':') }
+  // Windows separates PATH entries with ';' (and its entries hold 'C:').
+  const sep = host?.includes(';') ? ';' : ':'
+  return { PATH: [...new Set([dirOf(path), ...(node ? [dirOf(node)] : []), ...(host || '/usr/bin:/bin:/usr/sbin:/sbin').split(sep)])].filter(Boolean).join(sep) }
 }
 async function runTool($: $, path: string, args: string[], opts: { timeoutMs?: number; stdin?: string } = {}) {
   const argv = /\.m?js$/.test(path) ? [(await locate($, 'node')) ?? BIN.node, path, ...args] : [path, ...args]
@@ -105,7 +111,7 @@ async function whereIs($: $, p: Side): Promise<string | undefined> {
   // The desktop app alone (no CLI) still has account numbers to show: '' says so.
   return (await isFile($, await at($, CC_STATE))) !== false || (await isFile($, await at($, '.commandcode/auth.json'))) !== false ? '' : undefined
 }
-export const NOT_INSTALLED = 'not installed on this Mac'
+export const NOT_INSTALLED = 'not installed on this machine'
 
 // The provider's CLI path, or undefined after marking it missing: nothing is asked of a tool that is not there.
 // A look that fails (the session is closing) reads as "nothing to ask": the refresh ends quietly.
@@ -136,7 +142,7 @@ async function check($: $, p: Side): Promise<string | undefined> {
 }
 
 async function run($: $, argv: string[], opts: { env?: Record<string, string>; timeoutMs?: number; stdin?: string } = {}) {
-  const r = await $.process.run(argv, { cwd: '/tmp', timeoutMs: opts.timeoutMs ?? 15000, env: opts.env, stdin: opts.stdin })
+  const r = await $.process.run(argv, { cwd: await tempDir($), timeoutMs: opts.timeoutMs ?? 15000, env: opts.env, stdin: opts.stdin })
   if (r.exitCode !== 0) throw new Error(r.stderr.trim().split('\n').pop() || `exit ${r.exitCode}`)
   return r.stdout
 }
@@ -376,7 +382,7 @@ export async function codex($: $) {
   if (path === undefined) return
   const script = `{ printf '%s\\n' ${lines}; sleep 6; } | '${path.replace(/'/g, `'"'"'`)}' app-server`
   return guard($, 'codex', 'usage', async () => {
-    const r = await $.process.run(['/bin/sh', '-c', script], { cwd: '/tmp', timeoutMs: 15000, env: { CODEX_HOME: codexHome, ...(await toolEnv($, path)) } })
+    const r = await $.process.run(['/bin/sh', '-c', script], { cwd: await tempDir($), timeoutMs: 15000, env: { CODEX_HOME: codexHome, ...(await toolEnv($, path)) } })
     if (!r.stdout.trim()) throw new Error(r.stderr.trim().split('\n').pop() || `codex exited ${r.exitCode}`)
     const configs = [{ home: 'your Codex config', toml: await $.fs.read(`${codexHome}/config.toml`).catch(() => '') }]
     return parseCodex(r.stdout, configs, await $.clock.now())
@@ -554,7 +560,7 @@ async function opencodeLocal($: $): Promise<Partial<ProviderInfo>> {
   const win = (await sql($, db, `select ${GO_WINDOWS.map(x => `sum(case when time_created > (strftime('%s','now')-${x.secs})*1000 then json_extract(data,'$.cost') end) w${x.secs}`).join(', ')} from message where json_extract(data,'$.role')='assistant' and time_created > (strftime('%s','now')-2592000)*1000`))[0] ?? {}
   const meters: Meter[] = GO_WINDOWS.map(x => {
     const used = Number(win[`w${x.secs}`] ?? 0)
-    return { label: x.label, percent: (100 * used) / x.cap, detail: `≈ $${used.toFixed(2)} of $${x.cap} · this Mac only` }
+    return { label: x.label, percent: (100 * used) / x.cap, detail: `≈ $${used.toFixed(2)} of $${x.cap} · this machine only` }
   })
   const facts = [
     `$${spent.toFixed(2)} spent in 7 days`,
@@ -562,14 +568,14 @@ async function opencodeLocal($: $): Promise<Partial<ProviderInfo>> {
     `$${(all[0]?.cost ?? 0).toFixed(2)} all time`,
     ...week.slice(0, 3).map(r => `${r.m}: ${r.n} sessions, ${compact(r.tok ?? 0)} tokens`),
   ]
-  return { current: latest[0]?.m, meters, facts, plan: 'Go', usageSource: 'estimate', usageAt: await $.clock.now(), alert: undefined, note: 'estimates · this Mac only · opencode.ai shows the exact figures' }
+  return { current: latest[0]?.m, meters, facts, plan: 'Go', usageSource: 'estimate', usageAt: await $.clock.now(), alert: undefined, note: 'estimates · this machine only · opencode.ai shows the exact figures' }
 }
 
 export async function opencodeUsage($: $, manual = false) {
   if ((await present($, 'opencode')) === undefined) return
   return collectUsage($, 'opencode', manual, async live => {
     const [local, exact] = await Promise.all([
-      opencodeLocal($).catch((): Partial<ProviderInfo> => ({ meters: [], facts: [], usageSource: 'estimate', usageAt: undefined, alert: undefined, note: 'estimates unavailable · this Mac only' })),
+      opencodeLocal($).catch((): Partial<ProviderInfo> => ({ meters: [], facts: [], usageSource: 'estimate', usageAt: undefined, alert: undefined, note: 'estimates unavailable · this machine only' })),
       live ? liveOpencode($, await $.clock.now()) : undefined,
     ])
     return { ...local, ...exact }
@@ -833,7 +839,7 @@ export async function loadPrices($: $, refresh = false) {
   } catch {}
 }
 
-// ---------- Ollama: models on this Mac, through its local server ----------
+// ---------- Ollama: models on this machine, through its local server ----------
 
 export const OLLAMA_URL = 'http://127.0.0.1:11434'
 export const OLLAMA_DOWN = 'local server not running'

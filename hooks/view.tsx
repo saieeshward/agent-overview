@@ -1783,7 +1783,7 @@ async function providerView($: $, E: E, p: Provider, w: number) {
         </E.Box> : null}
       </E.Box>
       {info.status === 'missing' && !info.meters.length ? <E.Box key={`missing:${p}`} flexDirection="row" gap={2} flexWrap="wrap" borderStyle="round" borderColor="warning" paddingX={1}>
-        <E.Text color="warning" weight="bold">{info.error === NOT_INSTALLED ? `${nameOf(p)} is not installed on this Mac` : `${nameOf(p)} is not set up: ${info.error ?? 'unavailable'}`}</E.Text>
+        <E.Text color="warning" weight="bold">{info.error === NOT_INSTALLED ? `${nameOf(p)} is not installed on this machine` : `${nameOf(p)} is not set up: ${info.error ?? 'unavailable'}`}</E.Text>
         <E.Text dimColor>no work is routed to it</E.Text>
         <E.Button key={`recheck:${p}`} plain onPress={async () => { await recheck($, p); $.ui.toast((await read($, providers).then(allOf))[p].status === 'missing' ? `${nameOf(p)}: still not found` : `${nameOf(p)} found`) }}><E.Text color="suggestion">↻ check again</E.Text></E.Button>
       </E.Box> : null}
