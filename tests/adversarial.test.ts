@@ -50,7 +50,7 @@ function held(on: any, state: Record<string, any>) {
   on('state.set', { plugin: 'agent-overview' }, async (_$: any, e: any, next: any) => { const r = await next(e); if (r.value?.isSet) state[e.key] = e.value; return r })
 }
 
-test('/review-adversarial shows the cost first, runs only on go, fixes between rounds and stops when nothing real is left', async ($, on) => {
+test('/review-adversarial shows the cost first, runs only on go, fixes between rounds and stops when nothing real is left', { options: { owner_name: 'Sai' } }, async ($, on) => {
   const clock = mock.clock(on); mock.store(on)
   on('ui.invalidate', () => ({ value: undefined }))
   on('ui.toast', () => ({ value: undefined }))

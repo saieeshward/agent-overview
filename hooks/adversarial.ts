@@ -3,6 +3,7 @@ import type { EngineInterface } from 'claude-code'
 import type { AdversarialRun, Finding, Prices, Routing } from '../types'
 import { priceOf } from './cost'
 import { mergeFinding } from './work/stage'
+import { ownerName } from './state'
 
 type $ = EngineInterface
 
@@ -209,7 +210,7 @@ export async function reviewerDone($: $, agentId: string, answer: string, ok: bo
   $.ui.toast(`◆ Adversarial review round ${cur.round}: ${list.length} finding${list.length === 1 ? '' : 's'}, ${real.length} real`)
   if (more) {
     const lines = real.map((f, i) => `${i + 1}. [${f.severity}] ${f.file}${f.line ? `:${f.line}` : ''}: ${f.issue}${f.repro ? ` (repro: ${f.repro})` : ''}`)
-    await $.prompt.submit({ text: `Adversarial review round ${cur.round} of ${cur.rounds} (requested by Sai) found these defects. Fix the real ones, then end your turn; round ${cur.round + 1} starts after it.\n${lines.join('\n')}` }).catch(() => undefined)
+    await $.prompt.submit({ text: `Adversarial review round ${cur.round} of ${cur.rounds} (requested by ${ownerName()}) found these defects. Fix the real ones, then end your turn; round ${cur.round + 1} starts after it.\n${lines.join('\n')}` }).catch(() => undefined)
   }
   return true
 }

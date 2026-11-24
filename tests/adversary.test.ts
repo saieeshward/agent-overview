@@ -1,7 +1,7 @@
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 import type { Routing } from '../types'
-import { defaultRouting, handoffText, normalRouting, optimizeText, presetKey, routingHow, routingText, withPicks } from '../hooks/state'
+import { defaultRouting, handoffText, normalRouting, optimizeText, presetKey, routingHow, routingText, setOwner, withPicks } from '../hooks/state'
 import { colorOf, shortModel } from '../hooks/ui'
 import { fixture, NOW } from '../tools/pane-fixtures'
 
@@ -46,7 +46,7 @@ test('routing has one on-request adversarial review line, naming the owner\'s Cl
   const line = (r: Routing) => routingText(r).split('\n').filter(l => l.startsWith('Adversarial review:'))
   for (const r of [route(), reviewed(), { ...route(), role: 'claude' as const }, { ...reviewed(), on: { ...reviewed().on, codex: false } }]) {
     expect(line(r)).toHaveLength(1)
-    for (const text of ['only when Sai asks', 'never on your own', 'never as a routine step', 'mcp__agent-overview__adversarial_review', '/review-adversarial go']) expect(line(r)[0]).toContain(text)
+    for (const text of ['only when the user asks', 'never on your own', 'never as a routine step', 'mcp__agent-overview__adversarial_review', '/review-adversarial go']) expect(line(r)[0]).toContain(text)
     for (const loop of ['then review again', 'model that did the work to fix', 'after any change']) expect(line(r)[0]).not.toContain(loop)
   }
   expect(line(route())[0]).toContain('claude-opus-5-5 at high effort for up to 2 rounds')
@@ -126,4 +126,19 @@ for (const surface of ['desktop', 'terminal'] as const) for (const view of ['Mod
   expect(store.presets.find((p: any) => p.name === 'B').routing.adversary).toBeNull()
   expect(await ui.find({ type: 'Text', text: /^panel error:/ })).toBeUndefined()
   await ui.unmount()
+})
+
+// The owner_name option names the person in the line; left empty, the line says "the user". Pronouns stay they/them.
+test('the adversarial review line names the owner from the options, else the user', () => {
+  const line = () => routingText(route()).split('\n').find(l => l.startsWith('Adversarial review:'))!
+  setOwner('Sai')
+  try {
+    expect(line()).toContain('only when Sai asks')
+    expect(line()).toContain('they start it with /review-adversarial go')
+    for (const pronoun of [' he ', ' him ']) expect(line()).not.toContain(pronoun)
+  } finally { setOwner('') }
+  for (const blank of ['', '   ', undefined, 5]) {
+    setOwner(blank)
+    expect(line()).toContain('only when the user asks')
+  }
 })

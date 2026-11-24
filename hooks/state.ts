@@ -436,13 +436,18 @@ const noted = (x: Routing['picks'][number]) => (x.note ? ` (note: ${x.note})` : 
 // `over` lists providers past the owner's daily spend cap: they are used last.
 export const optimizeText = (r: Routing) => r.optimize === 'balanced' ? 'Between models that suit a task equally, pick the faster.' : r.optimize === 'speed' ? 'Prefer the fastest allowed model that can still do the task well.' : ''
 
+// Who the adversarial-review texts name: the owner_name option, else "the user". register sets it, and a reload runs register again.
+let owner = ''
+export const setOwner = (name: unknown) => { owner = typeof name === 'string' ? name.trim() : '' }
+export const ownerName = () => owner || 'the user'
+
 // Adversarial review is the owner's to ask for: the model never starts one, and a planner is never told to.
 // The owner's setting (a Claude model and rounds) is only the default for /review-adversarial.
 const adversaryText = (r: Routing, short = false) => {
   if (short) return ''
   const a = r.adversary
   const who = a?.provider === 'claude' ? a.model : 'claude-opus-5-5'
-  return `Adversarial review: only when Sai asks for one; never on your own and never as a routine step after changes. Then call adversarial_review (mcp__agent-overview__adversarial_review) with the goal, and a base ref if he names one: it shows him the cost of ${who} at high effort for up to ${a?.rounds ?? 2} rounds, and he starts it with /review-adversarial go.`
+  return `Adversarial review: only when ${ownerName()} asks for one; never on your own and never as a routine step after changes. Then call adversarial_review (mcp__agent-overview__adversarial_review) with the goal, and a base ref if they name one: it shows them the cost of ${who} at high effort for up to ${a?.rounds ?? 2} rounds, and they start it with /review-adversarial go.`
 }
 
 // What Ollama is for and which local models it may run: the owner's allowed ones, else every installed one.
