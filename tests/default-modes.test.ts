@@ -5,7 +5,7 @@ import { fixture } from '../tools/pane-fixtures'
 
 test('quota details and reactions keep units and use readable labels', () => {
   expect(usageDetail('12.3 of 60 credits · resets in 2h')).toBe('12.3 of 60 credits used · resets in 2h')
-  expect(usageDetail('≈ $4.10 of $12 · this Mac only')).toBe('≈ $4.10 of $12 used · this Mac only')
+  expect(usageDetail('≈ $4.10 of $12 · this machine only')).toBe('≈ $4.10 of $12 used · this machine only')
   expect(usageDetail('12.3 of 60 credits used')).toBe('12.3 of 60 credits used')
   expect(usageDetail('resets in 2h')).toBe('resets in 2h')
   for (const word of ['subagent', 'risk', 'skill', 'tool', 'line']) {

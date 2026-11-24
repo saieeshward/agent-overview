@@ -98,6 +98,6 @@ test('/usage says a provider is not installed instead of "quota not reported"', 
   const ps = Object.fromEntries(['claude', 'codex', 'opencode', 'commandcode', 'antigravity'].map(p => [p, { ...blank(), status: 'ok' }])) as Providers
   ps.codex = { ...blank(), status: 'missing' }
   const lines = usageLines(ps, defaultRouting()).split('\n')
-  expect(lines.find(l => l.startsWith('Codex:'))).toBe('Codex: not installed on this Mac')
+  expect(lines.find(l => l.startsWith('Codex:'))).toBe('Codex: not installed on this machine')
   expect(lines.find(l => l.startsWith('OpenCode:'))).toContain('quota not reported')
 })
