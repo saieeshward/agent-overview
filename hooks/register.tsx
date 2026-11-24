@@ -25,6 +25,8 @@ import { IMPACT, shortModel, tableOf } from './ui'
 import { autoAntigravity } from './auto'
 import { mergeFinding, stageDeny, workText } from './work/stage'
 import { geminiRun, vetImages } from './gemini'
+import { FREE_PROVIDERS, freeChain, keysOf } from './freeapi'
+import type { FreeKeys } from './freeapi'
 import { runsAgy } from './agyguard'
 import { cleanPicked, listWorktrees, listingText, parsePicks } from './worktrees'
 import { ADVERSARY, ADVERSARY_MODEL, ADVERSARY_PROMPT, cancel as cancelReview, mainTurnEnded, mainTurnStarted, noteReviewer, takeSpawn, parseArgs, prepare as prepareReview, reviewerDone, startRound, statusText } from './adversarial'
@@ -85,6 +87,9 @@ const DECISION_TOOL = 'mcp__agent-overview__decision_log'
 const REVIEW_TOOL = 'mcp__agent-overview__review_log'
 const OLLAMA_TOOL = 'mcp__agent-overview__ollama_run'
 const GEMINI_TOOL = 'mcp__agent-overview__gemini_run'
+const FREE_TOOL = 'mcp__agent-overview__free_run'
+// The owner's free-API keys, from the mod's options; set again at each load.
+let freeKeys: FreeKeys = {}
 const REVIEW_PREP_TOOL = 'mcp__agent-overview__adversarial_review'
 
 export { providerOf as family } from './state'
@@ -822,6 +827,36 @@ async function geminiTool($: EngineInterface, e: Loose): Promise<ToolCallResult>
   })
 }
 
+// A free-tier cloud API (Cerebras, Groq, OpenRouter) for small PUBLIC text jobs: it spares Claude tokens, and falls back across providers.
+async function freeTool($: EngineInterface, e: Loose): Promise<ToolCallResult> {
+  const r = await read($, routing)
+  const prompt = typeof e.prompt === 'string' ? e.prompt : ''
+  if (r.role === 'claude') return { deny: 'Side lanes are paused: Claude only (set by the owner in the agent panel). Do this in Claude.' }
+  if (!prompt.trim()) return { deny: 'prompt is empty: put the whole task and its input in prompt.' }
+  const info = await chainInfo($, e.agentId as string | undefined)
+  if (info.escalated) return { deny: ESCALATED_DENY }
+  // Free tiers may train on prompts: the call inherits the strictest sensitivity of the agent chain that made it, and only public goes out.
+  const declaredHere = parseDeclaration(String(e.description ?? ''))
+  const said = sideSensitivity(e.sensitivity, strictest([info.sensitivity, declaredHere.sensitivity]))
+  if ('refuse' in said) return { deny: `Free API refused: ${said.refuse}. Do this in Claude, or on Ollama (ollama_run) for private text.` }
+  const cloud = await cloudOk($, { sensitivity: said.sensitivity, text: prompt, publicOnly: true })
+  if (!cloud.allowed) return { deny: `Free API refused: ${cloud.why}. Do this in Claude, or on Ollama (ollama_run) for private text.` }
+  const parentRow = e.agentId ? (await read($, nodes)).find(n => n.agentId === e.agentId) : undefined
+  const node: AgentNode = {
+    id: e.tool_use_id, state: 'running', steps: 0, startedAt: await $.clock.now(), parentId: e.agentId, parentNode: parentRow?.id, run: parentRow?.run ?? mainTurn,
+    label: String(e.description ?? '') || labelOf(prompt) || 'Free API run', kind: 'Free API', model: typeof e.provider === 'string' ? e.provider : 'free', input: clip(prompt, 20000),
+  }
+  return track($, node, async (): Promise<ToolCallResult> => {
+    const { run, errors } = await freeChain($, freeKeys, prompt, {
+      provider: e.provider, model: typeof e.model === 'string' && e.model ? e.model : undefined,
+      system: typeof e.system === 'string' ? e.system : undefined, json: e.format === 'json',
+    })
+    if (!run) return { deny: `Free API run failed: ${errors.join('; ') || 'no provider could take it'}. Do this in Claude, or on Ollama (ollama_run) for private text.` }
+    await setNode($, n => n.id === e.tool_use_id, n => ({ ...n, model: `${FREE_PROVIDERS[run.provider].name} · ${run.model}` }))
+    return { result: run.text }
+  })
+}
+
 type Loose = { tool: string; tool_use_id: string; agentId?: string; [arg: string]: unknown }
 
 let seq = 0
@@ -993,7 +1028,8 @@ async function addEdits($: EngineInterface, items: EditItem[]) {
   }))
 }
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
+  freeKeys = keysOf(options)
   registerChatLook(on)
   registerChatSurfaces(on)
   on('session.start', async ($, e, next) => {
@@ -1109,6 +1145,29 @@ export const register: Register = on => {
           images: { type: 'array', items: { type: 'string' }, description: 'Absolute paths of image files (png, jpg, webp, gif, avif; under 20 MB) inside this project; each is resolved and copied into the temp folder' },
           model: { type: 'string', enum: GEMINI_MODELS, description: "Left out, the owner's visual model" },
           format: { type: 'string', enum: ['json'], description: 'json when the answer must be valid JSON' },
+          description: { type: 'string', description: 'A few words for the agent panel' },
+        },
+        required: ['prompt', 'sensitivity'],
+      },
+    })
+    await $.tool.register({
+      name: 'free_run',
+      isDeferred: false,
+      description:
+        'Run one prompt on a free-tier cloud model (Cerebras, Groq or OpenRouter, tried in that order until one answers) and get its text back. Costs no Claude tokens. ' +
+        'For small PUBLIC text jobs: summaries of public text, boilerplate, regex or one-liner drafts, rewording, classification, quick lookups. ' +
+        'PUBLIC MATERIAL ONLY: free tiers may train on what they receive, so sensitivity "internal" and "client" are refused, as is any text naming a confidential path; the call also inherits the strictest sensitivity of the agent that makes it. ' +
+        'The model has no tools and cannot read files, so put everything it needs in prompt. Check its answer before relying on it: these are small models. ' +
+        'Works only when the owner has set a key for at least one provider in the mod options.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          prompt: { type: 'string', description: 'The whole task, with any text it needs pasted in' },
+          sensitivity: { type: 'string', enum: ['public', 'internal', 'client'], description: 'Only "public" is sent; anything else is refused' },
+          provider: { type: 'string', enum: ['cerebras', 'groq', 'openrouter'], description: 'Left out, each provider with a key is tried, fastest first' },
+          model: { type: 'string', description: 'A model id for the named provider; left out, its default (only used with provider)' },
+          system: { type: 'string', description: 'Optional system instruction, such as the output format' },
+          format: { type: 'string', enum: ['json'], description: 'json when the answer must be a JSON object' },
           description: { type: 'string', description: 'A few words for the agent panel' },
         },
         required: ['prompt', 'sensitivity'],
@@ -1585,6 +1644,7 @@ export const register: Register = on => {
     }
     if (e.tool === OLLAMA_TOOL) return ollamaRun($, e)
     if (e.tool === GEMINI_TOOL) return geminiTool($, e)
+    if (e.tool === FREE_TOOL) return freeTool($, e)
     if (e.tool === REVIEW_PREP_TOOL) {
       const text = await prepareReview($, { action: 'prepare', base: typeof e.base === 'string' && e.base.trim() ? e.base.trim() : undefined, goal: String(e.goal ?? ''), rounds: typeof e.rounds === 'number' ? Math.max(1, Math.min(5, Math.round(e.rounds))) : undefined }, await read($, routing), await read($, prices))
       return { result: `${text}\nDo not start it yourself: only Sai starts it.` }
