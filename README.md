@@ -11,14 +11,7 @@ A Claude Code mod that adds an **Agent panel** beside the chat, plus routing and
 
 ## Install (to use it)
 
-The repository is private, so first make sure git can reach GitHub as you (the install never asks for a password):
-
-```sh
-gh auth login
-gh auth setup-git
-```
-
-Then, at the prompt of a Claude Code terminal session:
+At the prompt of a Claude Code terminal session:
 
 ```
 /plugin install agent-overview --marketplace saieeshward/agent-overview
